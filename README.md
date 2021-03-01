@@ -6,8 +6,11 @@ This is a Go implementation of the [original C implementation](https://github.co
 
 ## Library
 
-The following example generates a minisign public/private key pair, signs a message and verifies the message signature.  
-For more examples visit the Go package [documentation](https://pkg.go.dev/aead.dev/minisign).
+```Go
+import "aead.dev/minisign" 
+```
+
+The following example generates a minisign public/private key pair, signs a message and verifies the message signature.
 
 ```Go
 package main
@@ -20,17 +23,19 @@ import (
 )
 
 func main() {
-	const message = "Hello World!"
+	var message = []byte("Hello World!")
 
 	public, private, err := minisign.GenerateKey(rand.Reader)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	signature := minisign.Sign(private, []byte(message))
-	if !minisign.Verify(public, []byte(message), signature) {
-		log.Fatalln("Signature verification failed")
+	signature := minisign.Sign(private, message)
+	
+	if !minisign.Verify(public, message, signature) {
+		log.Fatalln("signature verification failed")
 	}
-	log.Println(message)
+	log.Println(string(message))
 }
 ```
+For more examples visit the package [documentation](https://pkg.go.dev/aead.dev/minisign).
