@@ -60,6 +60,14 @@ Options:
     -v               Print version information.
 ```
 
+## Installation
+
+If your system has [Go1.16+](), you can build from source:
+```
+git clone https://aead.dev/minisign && cd minisign
+go build -o . aead.dev/minisign/cmd/minisign
+```
+
 ## Library
 
 ```Go
