@@ -35,11 +35,9 @@ func PrivateKeyFromFile(password, path string) (PrivateKey, error) {
 // PrivateKey is a minisign private key.
 //
 // A private key can sign messages to prove the
-// origin and authenticity of these messages:
-//   signature := Sign(privateKey, message)
+// their origin and authenticity.
 //
-// PrivateKey implements the crypto.Signer interface
-// of the standard library.
+// PrivateKey implements the crypto.Signer interface.
 type PrivateKey struct {
 	_ [0]func() // prevent direct comparison: p1 == p2.
 
@@ -49,10 +47,10 @@ type PrivateKey struct {
 
 var _ crypto.Signer = (*PrivateKey)(nil) // compiler check
 
-// ID returns the 64 bit key ID of p.
+// ID returns the 64 bit key ID.
 func (p PrivateKey) ID() uint64 { return p.id }
 
-// Public returns the minisign public key corresponding to p.
+// Public returns the corresponding public key.
 func (p PrivateKey) Public() crypto.PublicKey {
 	var bytes [ed25519.PublicKeySize]byte
 	copy(bytes[:], p.bytes[32:])
@@ -94,7 +92,7 @@ func (p PrivateKey) Sign(_ io.Reader, message []byte, opts crypto.SignerOpts) (s
 	}
 }
 
-// Equal reports whether p and x have equivalent values.
+// Equal returns true if and only if p and x have equivalent values.
 func (p PrivateKey) Equal(x crypto.PrivateKey) bool {
 	xx, ok := x.(PrivateKey)
 	if !ok {
@@ -113,14 +111,8 @@ const (
 	privateKeySize = 158 // 2 + 2 + 2 + 32 + 8 + 8 + 104
 )
 
-// EncryptKey encrypts the private key with the given password.
-//
-// EncryptKey is not deterministic. Calling EncryptKey twice
-// with the same password and private key will very likely
-// produce two different ciphertexts.
-//
-// EncryptKey returns an error if it fails to read enough bytes
-// from the RNG of the OS.
+// EncryptKey encrypts the private key with the given password
+// using some entropy from the RNG of the OS.
 func EncryptKey(password string, privateKey PrivateKey) ([]byte, error) {
 	var privateKeyBytes [72]byte
 	binary.LittleEndian.PutUint64(privateKeyBytes[:], privateKey.ID())
@@ -136,9 +128,9 @@ func EncryptKey(password string, privateKey PrivateKey) ([]byte, error) {
 	binary.LittleEndian.PutUint16(bytes[2:], scryptAlgorithm)
 	binary.LittleEndian.PutUint16(bytes[4:], blake2bAlgorithm)
 
-	const (
-		defaultOps = 1048576
-		defaultMem = 33554432
+	const ( // TODO(aead): Callers may want to customize the cost parameters
+		defaultOps = 33554432   // libsodium OPS_LIMIT_SENSITIVE
+		defaultMem = 1073741824 // libsodium MEM_LIMIT_SENSITIVE
 	)
 	copy(bytes[6:38], salt[:])
 	binary.LittleEndian.PutUint64(bytes[38:], defaultOps)
@@ -218,9 +210,6 @@ func encryptKey(password string, salt []byte, ops, mem uint64, plaintext []byte)
 		messageLen    = 74
 		ciphertextLen = 104
 	)
-	if len(plaintext) != plaintextLen {
-		panic("")
-	}
 
 	N, r, p := convertScryptParameters(ops, mem)
 	keystream, err := scrypt.Key([]byte(password), salt, N, r, p, ciphertextLen)

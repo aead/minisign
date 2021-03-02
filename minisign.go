@@ -154,14 +154,8 @@ func SignWithComments(privateKey PrivateKey, message []byte, trustedComment, unt
 }
 
 // Verify checks whether message is authentic by verifying
-// it with the given public key and signature.
-//
-//   if !Verify(publicKey, message, signature) {
-//       // message is not authentic / signature is invalid
-//   } else {
-//      // Everything OK
-//   }
-//
+// it with the given public key and signature. It returns
+// true if and only if the signature verification is successful.
 func Verify(publicKey PublicKey, message, signature []byte) bool {
 	const isHashed = false
 	return verify(publicKey, message, signature, isHashed)
