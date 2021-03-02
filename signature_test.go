@@ -21,7 +21,7 @@ func TestEqualSignature(t *testing.T) {
 func TestMarshalInvalidSignature(t *testing.T) {
 	var signature Signature
 	if _, err := signature.MarshalText(); err == nil {
-		t.Fatal("Marshalling invalid signature succeeded")
+		t.Fatal("Marshaling invalid signature succeeded")
 	}
 }
 

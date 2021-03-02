@@ -70,7 +70,7 @@ func (p PrivateKey) Public() crypto.PublicKey {
 // BLAKE2b-512 digest. If opts is crypto.BLAKE2b_512 then message
 // must be a 64 bytes long.
 //
-// Minisign signatures are deterministc such that no randomness
+// Minisign signatures are deterministic such that no randomness
 // is necessary.
 func (p PrivateKey) Sign(_ io.Reader, message []byte, opts crypto.SignerOpts) (signature []byte, err error) {
 	var (
