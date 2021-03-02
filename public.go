@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"strconv"
 	"strings"
@@ -30,14 +29,9 @@ func PublicKeyFromFile(path string) (PublicKey, error) {
 
 // PublicKey is a minisign public key.
 //
-// A public key can verify whether messages have been
-// signed with the corresponding private key:
-//   if Verify(publicKey, message, signature) {
-//      // => signature is valid
-//      // => message is authentic and has been
-//            signed with corrsponding private key
-//   }
-//
+// A public key is used to verify whether messages
+// have been signed with the corresponding private
+// key.
 type PublicKey struct {
 	_ [0]func() // prevent direct comparison: p1 == p2.
 
@@ -45,10 +39,10 @@ type PublicKey struct {
 	bytes [ed25519.PublicKeySize]byte
 }
 
-// ID returns the 64 bit key ID of p.
+// ID returns the 64 bit key ID.
 func (p PublicKey) ID() uint64 { return p.id }
 
-// Equal reports whether p and x have equivalent values.
+// Equal returns true if and only if p and x have equivalent values.
 func (p PublicKey) Equal(x crypto.PublicKey) bool {
 	xx, ok := x.(PublicKey)
 	if !ok {
@@ -57,7 +51,7 @@ func (p PublicKey) Equal(x crypto.PublicKey) bool {
 	return p.id == xx.id && p.bytes == xx.bytes
 }
 
-// String returns a string representation of the PublicKey p.
+// String returns a base64 string representation of the PublicKey p.
 func (p PublicKey) String() string {
 	var bytes [2 + 8 + ed25519.PublicKeySize]byte
 	binary.LittleEndian.PutUint16(bytes[:2], EdDSA)
@@ -76,8 +70,7 @@ func (p PublicKey) MarshalText() ([]byte, error) {
 }
 
 // UnmarshalText parses text as textual-encoded public key.
-// It returns an error if text is not a well-formed minisign
-// public key.
+// It returns an error if text is not a well-formed public key.
 func (p *PublicKey) UnmarshalText(text []byte) error {
 	text = trimUntrustedComment(text)
 	bytes := make([]byte, base64.StdEncoding.DecodedLen(len(text)))
@@ -97,16 +90,4 @@ func (p *PublicKey) UnmarshalText(text []byte) error {
 	p.id = binary.LittleEndian.Uint64(bytes[2:10])
 	copy(p.bytes[:], bytes[10:])
 	return nil
-}
-
-func (p PublicKey) WriteTo(w io.Writer) (int64, error) {
-	bytes, err := p.MarshalText()
-	if err != nil {
-		return 0, err
-	}
-	n, err := w.Write(bytes)
-	if n < len(bytes) && err == nil {
-		err = io.ErrShortWrite
-	}
-	return int64(n), err
 }
