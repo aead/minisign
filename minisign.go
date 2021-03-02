@@ -88,7 +88,7 @@ func (r *Reader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// Sign signes whatever has been read from the underlying
+// Sign signs whatever has been read from the underlying
 // io.Reader up to this point in time with the given private
 // key.
 //
@@ -101,7 +101,7 @@ func (r *Reader) Sign(privateKey PrivateKey) []byte {
 	return r.SignWithComments(privateKey, trustedComment, untrustedComment)
 }
 
-// SignWithComments signes whatever has been read from the underlying
+// SignWithComments signs whatever has been read from the underlying
 // io.Reader up to this point in time with the given private key.
 //
 // The trustedComment as well as the untrustedComment are embedded into the

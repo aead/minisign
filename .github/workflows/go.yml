@@ -10,7 +10,30 @@ on:
 
 jobs:
   build:
-    name: Build Go ${{ matrix.go-version }} on ${{ matrix.os }}
+    name: Build Go ${{ matrix.go-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [1.16.x]
+    steps:
+    - name: Set up Go ${{ matrix.go-version }}
+      uses: actions/setup-go@v1
+      with:
+        go-version: ${{ matrix.go-version }}
+      id: go
+
+    - name: Check out code into the Go module directory
+      uses: actions/checkout@v1
+
+    - name: Build
+      env:
+        GO111MODULE: on
+      run: |
+         curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.33.0
+         $(go env GOPATH)/bin/golangci-lint run --config ./.golangci.yml
+         go vet ./...
+  test:
+    name: Test Go ${{ matrix.go-version }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
