@@ -134,6 +134,17 @@ func generateKeyPair(secKeyFile, pubKeyFile string, force bool) {
 		}
 	}
 
+	if dir := filepath.Dir(secKeyFile); dir != "" && dir != "." && dir != "/" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			log.Fatalf("Error: %v", err)
+		}
+	}
+	if dir := filepath.Dir(pubKeyFile); dir != "" && dir != "." && dir != "/" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			log.Fatalf("Error: %v", err)
+		}
+	}
+
 	fmt.Print("Please enter a password to protect the secret key.\n\n")
 	var (
 		password      = readPassword(os.Stdin, "Enter Password: ")
@@ -217,6 +228,14 @@ func signFiles(secKeyFile, sigFile, untrustedComment, trustedComment string, pre
 		log.Fatalf("Error: invalid password: %v", err)
 	}
 	fmt.Print("done\n\n")
+
+	if sigFile != "" {
+		if dir := filepath.Dir(sigFile); dir != "" && dir != "." && dir != "/" {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				log.Fatalf("Error: %v", err)
+			}
+		}
+	}
 
 	for _, name := range files {
 		var signature []byte
