@@ -136,8 +136,8 @@ func generateKeyPair(secKeyFile, pubKeyFile string, force bool) {
 
 	fmt.Print("Please enter a password to protect the secret key.\n\n")
 	var (
-		password      = readPassword(os.Stdin, "Password: ")
-		passwordAgain = readPassword(os.Stdin, "Password (one more time): ")
+		password      = readPassword(os.Stdin, "Enter Password: ")
+		passwordAgain = readPassword(os.Stdin, "Enter Password (one more time): ")
 	)
 	if password != passwordAgain {
 		log.Fatal("Error: passwords don't match")
@@ -157,7 +157,7 @@ func generateKeyPair(secKeyFile, pubKeyFile string, force bool) {
 
 	var fileFlags = os.O_CREATE | os.O_WRONLY | os.O_TRUNC
 	if !force {
-		fileFlags = os.O_EXCL // fail if the file already exists
+		fileFlags |= os.O_EXCL // fail if the file already exists
 	}
 	skFile, err := os.OpenFile(secKeyFile, fileFlags, 0600)
 	if err != nil {
