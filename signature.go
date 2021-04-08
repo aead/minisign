@@ -141,9 +141,9 @@ func (s *Signature) UnmarshalText(text []byte) error {
 	}
 
 	var (
-		untrustedComment        = segments[0]
+		untrustedComment        = strings.TrimRight(segments[0], "\r")
 		encodedSignature        = segments[1]
-		trustedComment          = segments[2]
+		trustedComment          = strings.TrimRight(segments[2], "\r")
 		encodedCommentSignature = segments[3]
 	)
 	if !strings.HasPrefix(untrustedComment, "untrusted comment: ") {

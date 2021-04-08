@@ -4,7 +4,10 @@
 
 package minisign
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestEqualSignature(t *testing.T) {
 	for i, test := range equalSignatureTests {
@@ -61,6 +64,19 @@ func TestUnmarshalSignature(t *testing.T) {
 				t.Fatalf("Test %d: untrusted comment mismatch: got '%s' - want '%s'", i, signature.UntrustedComment, test.Signature.UntrustedComment)
 			}
 		}
+	}
+}
+
+func TestSignatureCarriageReturn(t *testing.T) {
+	signature, err := SignatureFromFile("./internal/testdata/robtest.ps1.minisig")
+	if err != nil {
+		t.Fatalf("Failed to read signature from file: %v", err)
+	}
+	if strings.HasSuffix(signature.UntrustedComment, "\r") {
+		t.Fatal("Untrusted comment ends with a carriage return")
+	}
+	if strings.HasSuffix(signature.TrustedComment, "\r") {
+		t.Fatal("Trusted comment ends with a carriage return")
 	}
 }
 
