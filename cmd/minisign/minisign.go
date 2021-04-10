@@ -23,10 +23,10 @@ import (
 )
 
 const usage = `Usage:
-    minisign -G -p <pubKey> -s <secKey>
+    minisign -G [-p <pubKey>] [-s <secKey>]
     minisign -S [-H] [-x <signature>] [-s <secKey>] [-c <comment>] [-t <comment>] -m <file>...
     minisign -V [-x <signature>] [-p <pubKey> | -P <pubKey>] [-o] [-q | -Q ] -m <file>
-    minisign -R -s <secKey> -p <pubKey>
+    minisign -R [-s <secKey>] [-p <pubKey>]
  
 Options:
     -G               Generate a new public/secret key pair.       
