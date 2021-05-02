@@ -1,5 +1,6 @@
 [![Go Reference](https://pkg.go.dev/badge/aead.dev/minisign.svg)](https://pkg.go.dev/aead.dev/minisign)
 ![Github CI](https://github.com/aead/minisign/actions/workflows/go.yml/badge.svg?branch=main)
+[![latest](https://badgen.net/github/tag/aead/minisign)](https://github.com/aead/minisign/releases/latest)
 
 # minisign
 minisign is a dead simple tool to sign files and verify signatures.
