@@ -145,13 +145,16 @@ func generateKeyPair(secKeyFile, pubKeyFile string, force bool) {
 		}
 	}
 
-	fmt.Print("Please enter a password to protect the secret key.\n\n")
-	var (
-		password      = readPassword(os.Stdin, "Enter Password: ")
-		passwordAgain = readPassword(os.Stdin, "Enter Password (one more time): ")
-	)
-	if password != passwordAgain {
-		log.Fatal("Error: passwords don't match")
+	var password string
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		fmt.Print("Please enter a password to protect the secret key.\n\n")
+		password = readPassword(os.Stdin, "Enter Password: ")
+		passwordAgain := readPassword(os.Stdin, "Enter Password (one more time): ")
+		if password != passwordAgain {
+			log.Fatal("Error: passwords don't match")
+		}
+	} else {
+		password = readPassword(os.Stdin, "Enter Password: ")
 	}
 	publicKey, privateKey, err := minisign.GenerateKey(rand.Reader)
 	if err != nil {
@@ -391,6 +394,14 @@ func recreateKeyPair(secKeyFile, pubKeyFile string, force bool) {
 }
 
 func readPassword(file *os.File, message string) string {
+	if !term.IsTerminal(int(file.Fd())) { // If file is not a terminal read the password directly from it
+		p, err := bufio.NewReader(file).ReadString('\n')
+		if err != nil {
+			log.Fatalf("Error: failed to read password: %v", err)
+		}
+		return strings.TrimSuffix(p, "\n") // ReadString contains the trailing '\n'
+	}
+
 	fmt.Fprint(file, message)
 	p, err := term.ReadPassword(int(file.Fd()))
 	fmt.Fprintln(file)
