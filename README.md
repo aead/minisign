@@ -38,8 +38,8 @@ This is a Go implementation of the [original C implementation](https://github.co
 ```
 Usage:
     minisign -G [-p <pubKey>] [-s <secKey>]
-    minisign -S [-H] [-x <signature>] [-s <secKey>] [-c <comment>] [-t <comment>] -m <file>...
-    minisign -V [-x <signature>] [-p <pubKey> | -P <pubKey>] [-o] [-q | -Q ] -m <file>
+    minisign -S [-x <signature>] [-s <secKey>] [-c <comment>] [-t <comment>] -m <file>...
+    minisign -V [-H] [-x <signature>] [-p <pubKey> | -P <pubKey>] [-o] [-q | -Q ] -m <file>
     minisign -R [-s <secKey>] [-p <pubKey>]
  
 Options:
@@ -48,7 +48,7 @@ Options:
     -V               Verify files with a public key.
     -m <file>        The file to sign or verify.
     -o               Combined with -V, output the file after verification.
-    -H               Combined with -S, pre-hash in order to sign large files.
+    -H               Combined with -V, require a signature over a pre-hashed file.
     -p <pubKey>      Public key file (default: ./minisign.pub)
     -P <pubKey>      Public key as base64 string
     -s <secKey>      Secret key file (default: $HOME/.minisign/minisign.key)
