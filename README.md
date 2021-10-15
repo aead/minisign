@@ -67,11 +67,11 @@ Options:
 On windows, linux and macOS, you can use the pre-built binaries:
 | OS        | ARCH    | Latest Release                                                                                                         |
 |:---------:|:-------:|:-----------------------------------------------------------------------------------------------------------------------|
-| Linux     | amd64   | [minisign-linux-amd64.tar.gz](https://github.com/aead/minisign/releases/download/v0.1.2/minisign-linux-amd64.tar.gz)   |
-| Linux     | arm64   | [minisign-linux-arm64.tar.gz](https://github.com/aead/minisign/releases/download/v0.1.2/minisign-linux-arm64.tar.gz)   |
-| MacOS     | arm64   | [minisign-darwin-arm64.tar.gz](https://github.com/aead/minisign/releases/download/v0.1.2/minisign-darwin-arm64.tar.gz) |
-| MacOS     | amd64   | [minisign-darwin-amd64.tar.gz](https://github.com/aead/minisign/releases/download/v0.1.2/minisign-darwin-amd64.tar.gz) |
-| Windows   | amd64   | [minisign-windows-amd64.zip](https://github.com/aead/minisign/releases/download/v0.1.2/minisign-windows-amd64.zip)     |
+| Linux     | amd64   | [minisign-linux-amd64.tar.gz](https://github.com/aead/minisign/releases/download/v0.2.0/minisign-linux-amd64.tar.gz)   |
+| Linux     | arm64   | [minisign-linux-arm64.tar.gz](https://github.com/aead/minisign/releases/download/v0.2.0/minisign-linux-arm64.tar.gz)   |
+| MacOS     | arm64   | [minisign-darwin-arm64.tar.gz](https://github.com/aead/minisign/releases/download/v0.2.0/minisign-darwin-arm64.tar.gz) |
+| MacOS     | amd64   | [minisign-darwin-amd64.tar.gz](https://github.com/aead/minisign/releases/download/v0.2.0/minisign-darwin-amd64.tar.gz) |
+| Windows   | amd64   | [minisign-windows-amd64.zip](https://github.com/aead/minisign/releases/download/v0.2.0/minisign-windows-amd64.zip)     |
 
 If your system has [Go1.16+](https://golang.org/dl/), you can build from source:
 ```
