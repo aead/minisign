@@ -24,8 +24,8 @@ import (
 
 const usage = `Usage:
     minisign -G [-p <pubKey>] [-s <secKey>]
-    minisign -S [-H] [-x <signature>] [-s <secKey>] [-c <comment>] [-t <comment>] -m <file>...
-    minisign -V [-x <signature>] [-p <pubKey> | -P <pubKey>] [-o] [-q | -Q ] -m <file>
+    minisign -S [-x <signature>] [-s <secKey>] [-c <comment>] [-t <comment>] -m <file>...
+    minisign -V [-H] [-x <signature>] [-p <pubKey> | -P <pubKey>] [-o] [-q | -Q ] -m <file>
     minisign -R [-s <secKey>] [-p <pubKey>]
  
 Options:
@@ -34,7 +34,7 @@ Options:
     -V               Verify files with a public key.
     -m <file>        The file to sign or verify.
     -o               Combined with -V, output the file after verification.
-    -H               Combined with -S, pre-hash in order to sign large files.
+    -H               Combined with -V, require a signature over a pre-hashed file.
     -p <pubKey>      Public key file (default: ./minisign.pub)
     -P <pubKey>      Public key as base64 string
     -s <secKey>      Secret key file (default: $HOME/.minisign/minisign.key)
@@ -104,9 +104,9 @@ func main() {
 	case keyGenFlag:
 		generateKeyPair(secKeyFileFlag, pubKeyFileFlag, forceFlag)
 	case signFlag:
-		signFiles(secKeyFileFlag, signatureFlag, untrustedCommentFlag, trustedCommentFlag, hashFlag, filesFlag...)
+		signFiles(secKeyFileFlag, signatureFlag, untrustedCommentFlag, trustedCommentFlag, filesFlag...)
 	case verifyFlag:
-		verifyFile(signatureFlag, pubKeyFileFlag, pubKeyFlag, outputFlag, quietFlag, prettyQuietFlag, filesFlag...)
+		verifyFile(signatureFlag, pubKeyFileFlag, pubKeyFlag, outputFlag, quietFlag, prettyQuietFlag, hashFlag, filesFlag...)
 	case recreateFlag:
 		recreateKeyPair(secKeyFileFlag, pubKeyFileFlag, forceFlag)
 	default:
@@ -198,7 +198,7 @@ func generateKeyPair(secKeyFile, pubKeyFile string, force bool) {
 	fmt.Printf("minisign -Vm <file> -P %s\n", publicKey)
 }
 
-func signFiles(secKeyFile, sigFile, untrustedComment, trustedComment string, preHash bool, files ...string) {
+func signFiles(secKeyFile, sigFile, untrustedComment, trustedComment string, files ...string) {
 	if len(files) == 0 {
 		log.Fatal("Error: no files to sign. Use -m to specify one or more file paths")
 	}
@@ -251,21 +251,12 @@ func signFiles(secKeyFile, sigFile, untrustedComment, trustedComment string, pre
 		if tComment == "" {
 			tComment = fmt.Sprintf("timestamp:%d\tfilename:%s", time.Now().Unix(), filepath.Base(name))
 		}
-		if preHash {
-			reader := minisign.NewReader(file)
-			if _, err = io.Copy(io.Discard, reader); err != nil {
-				file.Close()
-				log.Fatalf("Error: %v", err)
-			}
-			signature = reader.SignWithComments(privateKey, tComment, uComment)
-		} else {
-			message, err := io.ReadAll(bufio.NewReaderSize(file, 1<<20))
-			if err != nil {
-				file.Close()
-				log.Fatalf("Error: %v", err)
-			}
-			signature = minisign.SignWithComments(privateKey, message, tComment, uComment)
+		var reader = minisign.NewReader(file)
+		if _, err = io.Copy(io.Discard, reader); err != nil {
+			file.Close()
+			log.Fatalf("Error: %v", err)
 		}
+		signature = reader.SignWithComments(privateKey, tComment, uComment)
 		file.Close()
 
 		var signatureFile = name + ".minisig"
@@ -277,7 +268,7 @@ func signFiles(secKeyFile, sigFile, untrustedComment, trustedComment string, pre
 		}
 	}
 }
-func verifyFile(sigFile, pubFile, pubKeyString string, printOutput, quiet, prettyQuiet bool, files ...string) {
+func verifyFile(sigFile, pubFile, pubKeyString string, printOutput, quiet, prettyQuiet, requireHash bool, files ...string) {
 	if len(files) == 0 {
 		log.Fatalf("Error: no files to verify. Use -m to specify a file path")
 	}
@@ -312,7 +303,10 @@ func verifyFile(sigFile, pubFile, pubKeyString string, printOutput, quiet, prett
 	}
 
 	rawSignature, _ := signature.MarshalText()
-	if signature.Algorithm == minisign.HashEdDSA {
+	if requireHash && signature.Algorithm != minisign.HashEdDSA {
+		log.Fatal("Legacy (non-prehashed) signature found")
+	}
+	if signature.Algorithm == minisign.HashEdDSA || requireHash {
 		file, err := os.Open(files[0])
 		if err != nil {
 			log.Fatalf("Error: %v", err)
