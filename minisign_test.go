@@ -60,5 +60,4 @@ func TestReaderRoundtrip(t *testing.T) {
 	if !reader.Verify(publicKey, signature) {
 		t.Fatalf("Verification failed: signature %q - public key %q", signature, publicKey)
 	}
-
 }

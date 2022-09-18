@@ -12,7 +12,6 @@ linters:
     - goimports
     - misspell
     - govet
-    - golint
     - ineffassign
     - gosimple
     - deadcode
@@ -20,7 +19,6 @@ linters:
     - unused
     - structcheck
     - prealloc
-    - maligned
     - unconvert
 
 issues:
@@ -29,4 +27,4 @@ issues:
       - should have a package comment
       - error strings should not be capitalized or end with punctuation or a newline
 service:
-  golangci-lint-version: 1.35.0 # use the fixed version to not introduce new linters unexpectedly
+  golangci-lint-version: 1.48.0 # use the fixed version to not introduce new linters unexpectedly

@@ -162,7 +162,7 @@ func Verify(publicKey PublicKey, message, signature []byte) bool {
 }
 
 func sign(privateKey PrivateKey, message []byte, trustedComment, untrustedComment string, isHashed bool) []byte {
-	var algorithm = EdDSA
+	algorithm := EdDSA
 	if isHashed {
 		algorithm = HashEdDSA
 	}
