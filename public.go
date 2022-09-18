@@ -1,3 +1,7 @@
+// Copyright (c) 2021 Andreas Auernhammer. All rights reserved.
+// Use of this source code is governed by a license that can be
+// found in the LICENSE file.
+
 package minisign
 
 import (
@@ -65,7 +69,7 @@ func (p PublicKey) String() string {
 //
 // It never returns an error.
 func (p PublicKey) MarshalText() ([]byte, error) {
-	var comment = "untrusted comment: minisign public key: " + strings.ToUpper(strconv.FormatUint(p.ID(), 16)) + "\n"
+	comment := "untrusted comment: minisign public key: " + strings.ToUpper(strconv.FormatUint(p.ID(), 16)) + "\n"
 	return []byte(comment + p.String()), nil
 }
 
