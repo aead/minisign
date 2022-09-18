@@ -1,4 +1,4 @@
-ame: VulnCheck
+name: VulnCheck
 on:
   pull_request:
     branches:
