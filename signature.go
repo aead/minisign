@@ -107,6 +107,8 @@ func (s Signature) String() string {
 	buffer.WriteByte('\n')
 
 	buffer.WriteString(base64.StdEncoding.EncodeToString(s.CommentSignature[:]))
+	buffer.WriteByte('\n')
+
 	return buffer.String()
 }
 
