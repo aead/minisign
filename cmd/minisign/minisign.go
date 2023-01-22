@@ -25,7 +25,7 @@ import (
 const usage = `Usage:
     minisign -G [-p <pubKey>] [-s <secKey>]
     minisign -S [-x <signature>] [-s <secKey>] [-c <comment>] [-t <comment>] -m <file>...
-    minisign -V [-H] [-x <signature>] [-p <pubKey> | -P <pubKey>] [-o] [-q | -Q ] -m <file>
+    minisign -V [-H] [-x <signature>] [-p <pubKey> | -P <pubKey>] [-o] [-q] [-Q] -m <file>
     minisign -R [-s <secKey>] [-p <pubKey>]
  
 Options:
@@ -42,7 +42,7 @@ Options:
     -c <comment>     Add a one-line untrusted comment.
     -t <comment>     Add a one-line trusted comment.
     -q               Quiet mode. Suppress output.
-    -Q               Pretty quiet mode. Combined with -V, only print the trusted comment.
+    -Q               Combined with -V, emit the trusted comment on stdout.
     -R               Re-create a public key file from a secret key.
     -f               Combined with -G or -R, overwrite any existing public/secret key pair.
     -v               Print version information.
@@ -57,23 +57,23 @@ func main() {
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 
 	var (
-		keyGenFlag           bool
-		signFlag             bool
-		verifyFlag           bool
-		filesFlag            = multiFlag{}
-		outputFlag           bool
-		hashFlag             bool
-		pubKeyFileFlag       string
-		pubKeyFlag           string
-		secKeyFileFlag       string
-		signatureFlag        string
-		untrustedCommentFlag string
-		trustedCommentFlag   string
-		quietFlag            bool
-		prettyQuietFlag      bool
-		recreateFlag         bool
-		forceFlag            bool
-		versionFlag          bool
+		keyGenFlag               bool
+		signFlag                 bool
+		verifyFlag               bool
+		filesFlag                = multiFlag{}
+		outputFlag               bool
+		hashFlag                 bool
+		pubKeyFileFlag           string
+		pubKeyFlag               string
+		secKeyFileFlag           string
+		signatureFlag            string
+		untrustedCommentFlag     string
+		trustedCommentFlag       string
+		quietFlag                bool
+		outputTrustedCommentFlag bool
+		recreateFlag             bool
+		forceFlag                bool
+		versionFlag              bool
 	)
 	flag.BoolVar(&keyGenFlag, "G", false, "Generate a new public/secret key pair")
 	flag.BoolVar(&signFlag, "S", false, "Sign files with a secret key")
@@ -88,7 +88,7 @@ func main() {
 	flag.StringVar(&untrustedCommentFlag, "c", "", "Add a one-line untrusted comment")
 	flag.StringVar(&trustedCommentFlag, "t", "", "Add a one-line trusted comment")
 	flag.BoolVar(&quietFlag, "q", false, "Quiet mode. Suppress output")
-	flag.BoolVar(&prettyQuietFlag, "Q", false, "Pretty quiet mode. Combined with -V, only print the trusted comment")
+	flag.BoolVar(&outputTrustedCommentFlag, "Q", false, "Combined with -V, emit the trusted comment on stdout")
 	flag.BoolVar(&recreateFlag, "R", false, "Re-create a public key file from a secret key")
 	flag.BoolVar(&forceFlag, "f", false, "Combined with -G, overwrite any existing public/secret key pair")
 	flag.BoolVar(&versionFlag, "v", false, "Print version information")
@@ -106,7 +106,7 @@ func main() {
 	case signFlag:
 		signFiles(secKeyFileFlag, signatureFlag, untrustedCommentFlag, trustedCommentFlag, filesFlag...)
 	case verifyFlag:
-		verifyFile(signatureFlag, pubKeyFileFlag, pubKeyFlag, outputFlag, quietFlag, prettyQuietFlag, hashFlag, filesFlag...)
+		verifyFile(signatureFlag, pubKeyFileFlag, pubKeyFlag, outputFlag, quietFlag, outputTrustedCommentFlag, hashFlag, filesFlag...)
 	case recreateFlag:
 		recreateKeyPair(secKeyFileFlag, pubKeyFileFlag, forceFlag)
 	default:
@@ -147,7 +147,7 @@ func generateKeyPair(secKeyFile, pubKeyFile string, force bool) {
 
 	var password string
 	if term.IsTerminal(int(os.Stdin.Fd())) {
-		fmt.Print("Please enter a password to protect the secret key.\n\n")
+		fmt.Fprintf(os.Stderr, "Please enter a password to protect the secret key.\n\n")
 		password = readPassword(os.Stdin, "Enter Password: ")
 		passwordAgain := readPassword(os.Stdin, "Enter Password (one more time): ")
 		if password != passwordAgain {
@@ -161,13 +161,13 @@ func generateKeyPair(secKeyFile, pubKeyFile string, force bool) {
 		log.Fatalf("Error: %v", err)
 	}
 
-	fmt.Print("Deriving a key from the password in order to encrypt the secret key... ")
+	fmt.Fprint(os.Stderr, "Deriving a key from the password in order to encrypt the secret key... ")
 	encryptedPrivateKey, err := minisign.EncryptKey(password, privateKey)
 	if err != nil {
-		fmt.Println()
+		fmt.Fprintln(os.Stderr)
 		log.Fatalf("Error: %v", err)
 	}
-	fmt.Print("done\n\n")
+	fmt.Fprint(os.Stderr, "done\n\n")
 
 	var fileFlags = os.O_CREATE | os.O_WRONLY | os.O_TRUNC
 	if !force {
@@ -193,12 +193,12 @@ func generateKeyPair(secKeyFile, pubKeyFile string, force bool) {
 		log.Fatalf("Error: %v", err)
 	}
 
-	fmt.Printf("The secret key was saved as %s - Keep it secret!\n", secKeyFile)
-	fmt.Printf("The public key was saved as %s - That one can be public.\n", pubKeyFile)
-	fmt.Println()
-	fmt.Println("Files signed using this key pair can be verified with the following command:")
-	fmt.Println()
-	fmt.Printf("minisign -Vm <file> -P %s\n", publicKey)
+	fmt.Fprintf(os.Stderr, "The secret key was saved as %s - Keep it secret!\n", secKeyFile)
+	fmt.Fprintf(os.Stderr, "The public key was saved as %s - That one can be public.\n", pubKeyFile)
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, "Files signed using this key pair can be verified with the following command:")
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintf(os.Stderr, "minisign -Vm <file> -P %s\n", publicKey)
 }
 
 func signFiles(secKeyFile, sigFile, untrustedComment, trustedComment string, files ...string) {
@@ -224,13 +224,13 @@ func signFiles(secKeyFile, sigFile, untrustedComment, trustedComment string, fil
 	}
 	password := readPassword(os.Stdin, "Enter password: ")
 
-	fmt.Print("Deriving a key from the password in order to decrypt the secret key... ")
+	fmt.Fprint(os.Stderr, "Deriving a key from the password in order to decrypt the secret key... ")
 	privateKey, err := minisign.DecryptKey(password, encryptedPrivateKey)
 	if err != nil {
-		fmt.Println()
+		fmt.Fprintln(os.Stderr)
 		log.Fatalf("Error: invalid password: %v", err)
 	}
-	fmt.Print("done\n\n")
+	fmt.Fprint(os.Stderr, "done\n\n")
 
 	if sigFile != "" {
 		if dir := filepath.Dir(sigFile); dir != "" && dir != "." && dir != "/" {
@@ -271,7 +271,7 @@ func signFiles(secKeyFile, sigFile, untrustedComment, trustedComment string, fil
 		}
 	}
 }
-func verifyFile(sigFile, pubFile, pubKeyString string, printOutput, quiet, prettyQuiet, requireHash bool, files ...string) {
+func verifyFile(sigFile, pubFile, pubKeyString string, printOutput, quiet, outputTrustedComment, requireHash bool, files ...string) {
 	if len(files) == 0 {
 		log.Fatalf("Error: no files to verify. Use -m to specify a file path")
 	}
@@ -325,10 +325,13 @@ func verifyFile(sigFile, pubFile, pubKeyString string, printOutput, quiet, prett
 			log.Fatal("Error: signature verification failed")
 		}
 		if !quiet {
-			if !prettyQuiet {
-				fmt.Println("Signature and comment signature verified")
+			fmt.Fprintln(os.Stderr, "Signature and comment signature verified")
+			if !outputTrustedComment {
+				fmt.Fprintln(os.Stderr, "Trusted comment:", signature.TrustedComment)
 			}
-			fmt.Println("Trusted comment:", signature.TrustedComment)
+		}
+		if outputTrustedComment {
+			fmt.Println(signature.TrustedComment)
 		}
 		if printOutput {
 			if _, err = file.Seek(0, io.SeekStart); err != nil {
@@ -350,10 +353,13 @@ func verifyFile(sigFile, pubFile, pubKeyString string, printOutput, quiet, prett
 			log.Fatal("Error: signature verification failed")
 		}
 		if !quiet {
-			if !prettyQuiet {
-				fmt.Println("Signature and comment signature verified")
+			fmt.Fprintln(os.Stderr, "Signature and comment signature verified")
+			if !outputTrustedComment {
+				fmt.Fprintln(os.Stderr, "Trusted comment:", signature.TrustedComment)
 			}
-			fmt.Println("Trusted comment:", signature.TrustedComment)
+		}
+		if outputTrustedComment {
+			fmt.Println(signature.TrustedComment)
 		}
 		if printOutput {
 			os.Stdout.Write(message)
@@ -372,13 +378,13 @@ func recreateKeyPair(secKeyFile, pubKeyFile string, force bool) {
 	}
 
 	password := readPassword(os.Stdin, "Enter password: ")
-	fmt.Print("Deriving a key from the password in order to encrypt the secret key... ")
+	fmt.Fprintf(os.Stderr, "Deriving a key from the password in order to encrypt the secret key... ")
 	privateKey, err := minisign.PrivateKeyFromFile(password, secKeyFile)
 	if err != nil {
-		fmt.Println()
+		fmt.Fprintln(os.Stderr)
 		log.Fatalf("Error: invalid password: %v", err)
 	}
-	fmt.Println("done")
+	fmt.Fprintln(os.Stderr, "done")
 
 	publicKey := privateKey.Public().(minisign.PublicKey)
 	rawPublicKey, _ := publicKey.MarshalText()
