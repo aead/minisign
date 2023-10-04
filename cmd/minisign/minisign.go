@@ -48,7 +48,7 @@ Options:
     -v               Print version information.
 `
 
-var version string = "v0.0.0-dev"
+var version = "v0.0.0-dev"
 
 func main() {
 	log.SetFlags(0)
@@ -135,12 +135,12 @@ func generateKeyPair(secKeyFile, pubKeyFile string, force bool) {
 	}
 
 	if dir := filepath.Dir(secKeyFile); dir != "" && dir != "." && dir != "/" {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			log.Fatalf("Error: %v", err)
 		}
 	}
 	if dir := filepath.Dir(pubKeyFile); dir != "" && dir != "." && dir != "/" {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			log.Fatalf("Error: %v", err)
 		}
 	}
@@ -169,11 +169,11 @@ func generateKeyPair(secKeyFile, pubKeyFile string, force bool) {
 	}
 	fmt.Print("done\n\n")
 
-	var fileFlags = os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+	fileFlags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
 	if !force {
 		fileFlags |= os.O_EXCL // fail if the file already exists
 	}
-	skFile, err := os.OpenFile(secKeyFile, fileFlags, 0600)
+	skFile, err := os.OpenFile(secKeyFile, fileFlags, 0o600)
 	if err != nil {
 		log.Fatalf("Error: %v", err)
 	}
@@ -182,7 +182,7 @@ func generateKeyPair(secKeyFile, pubKeyFile string, force bool) {
 		log.Fatalf("Error: %v", err)
 	}
 
-	pkFile, err := os.OpenFile(pubKeyFile, fileFlags, 0644)
+	pkFile, err := os.OpenFile(pubKeyFile, fileFlags, 0o644)
 	if err != nil {
 		log.Fatalf("Error: %v", err)
 	}
@@ -234,7 +234,7 @@ func signFiles(secKeyFile, sigFile, untrustedComment, trustedComment string, fil
 
 	if sigFile != "" {
 		if dir := filepath.Dir(sigFile); dir != "" && dir != "." && dir != "/" {
-			if err := os.MkdirAll(dir, 0755); err != nil {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
 				log.Fatalf("Error: %v", err)
 			}
 		}
@@ -247,14 +247,14 @@ func signFiles(secKeyFile, sigFile, untrustedComment, trustedComment string, fil
 			log.Fatalf("Error: %v", err)
 		}
 
-		var tComment, uComment = trustedComment, untrustedComment
+		tComment, uComment := trustedComment, untrustedComment
 		if uComment == "" {
 			uComment = "signature from minisign secret key"
 		}
 		if tComment == "" {
 			tComment = fmt.Sprintf("timestamp:%d\tfilename:%s", time.Now().Unix(), filepath.Base(name))
 		}
-		var reader = minisign.NewReader(file)
+		reader := minisign.NewReader(file)
 		if _, err = io.Copy(io.Discard, reader); err != nil {
 			file.Close()
 			log.Fatalf("Error: %v", err)
@@ -262,15 +262,16 @@ func signFiles(secKeyFile, sigFile, untrustedComment, trustedComment string, fil
 		signature = reader.SignWithComments(privateKey, tComment, uComment)
 		file.Close()
 
-		var signatureFile = name + ".minisig"
+		signatureFile := name + ".minisig"
 		if sigFile != "" {
 			signatureFile = sigFile
 		}
-		if err = os.WriteFile(signatureFile, signature, 0644); err != nil {
+		if err = os.WriteFile(signatureFile, signature, 0o644); err != nil {
 			log.Fatalf("Error: %v", err)
 		}
 	}
 }
+
 func verifyFile(sigFile, pubFile, pubKeyString string, printOutput, quiet, prettyQuiet, requireHash bool, files ...string) {
 	if len(files) == 0 {
 		log.Fatalf("Error: no files to verify. Use -m to specify a file path")
@@ -382,7 +383,7 @@ func recreateKeyPair(secKeyFile, pubKeyFile string, force bool) {
 
 	publicKey := privateKey.Public().(minisign.PublicKey)
 	rawPublicKey, _ := publicKey.MarshalText()
-	if err = os.WriteFile(pubKeyFile, rawPublicKey, 0644); err != nil {
+	if err = os.WriteFile(pubKeyFile, rawPublicKey, 0o644); err != nil {
 		log.Fatalf("Error: %v", err)
 	}
 }
