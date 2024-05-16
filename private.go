@@ -5,6 +5,7 @@
 package minisign
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -12,8 +13,9 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
-	"io/ioutil"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -25,7 +27,7 @@ import (
 // PrivateKeyFromFile reads and decrypts the private key
 // file with the given password.
 func PrivateKeyFromFile(password, path string) (PrivateKey, error) {
-	bytes, err := ioutil.ReadFile(path)
+	bytes, err := os.ReadFile(path)
 	if err != nil {
 		return PrivateKey{}, err
 	}
@@ -34,8 +36,7 @@ func PrivateKeyFromFile(password, path string) (PrivateKey, error) {
 
 // PrivateKey is a minisign private key.
 //
-// A private key can sign messages to prove the
-// their origin and authenticity.
+// A private key can sign messages to prove their origin and authenticity.
 //
 // PrivateKey implements the crypto.Signer interface.
 type PrivateKey struct {
@@ -101,9 +102,89 @@ func (p PrivateKey) Equal(x crypto.PrivateKey) bool {
 	return p.id == xx.id && subtle.ConstantTimeCompare(p.bytes[:], xx.bytes[:]) == 1
 }
 
+// MarshalText returns a textual representation of the private key.
+//
+// For password-protected private keys refer to [EncryptKey].
+func (p PrivateKey) MarshalText() ([]byte, error) {
+	var b [privateKeySize]byte
+
+	binary.LittleEndian.PutUint16(b[:], EdDSA)
+	binary.LittleEndian.PutUint16(b[2:], algorithmNone)
+	binary.LittleEndian.PutUint16(b[4:], algorithmBlake2b)
+
+	binary.LittleEndian.PutUint64(b[54:], p.id)
+	copy(b[62:], p.bytes[:])
+
+	const comment = "untrusted comment: minisign encrypted secret key\n"
+	encodedBytes := make([]byte, len(comment)+base64.StdEncoding.EncodedLen(len(b)))
+	copy(encodedBytes, []byte(comment))
+	base64.StdEncoding.Encode(encodedBytes[len(comment):], b[:])
+	return encodedBytes, nil
+}
+
+// UnmarshalText decodes a textual representation of the private key into p.
+//
+// It returns an error if the private key is encrypted. For decrypting
+// password-protected private keys refer to [DecryptKey].
+func (p *PrivateKey) UnmarshalText(text []byte) error {
+	text = trimUntrustedComment(text)
+	b := make([]byte, base64.StdEncoding.DecodedLen(len(text)))
+	n, err := base64.StdEncoding.Decode(b, text)
+	if err != nil {
+		return fmt.Errorf("minisign: invalid private key: %v", err)
+	}
+	b = b[:n]
+
+	if len(b) != privateKeySize {
+		return errors.New("minisign: invalid private key")
+	}
+
+	var (
+		empty [32]byte
+
+		kType     = binary.LittleEndian.Uint16(b)
+		kdf       = binary.LittleEndian.Uint16(b[2:])
+		hType     = binary.LittleEndian.Uint16(b[4:])
+		salt      = b[6:38]
+		scryptOps = binary.LittleEndian.Uint64(b[38:])
+		scryptMem = binary.LittleEndian.Uint64(b[46:])
+		key       = b[54:126]
+		checksum  = b[126:privateKeySize]
+	)
+	if kType != EdDSA {
+		return fmt.Errorf("minisign: invalid private key: invalid key type '%d'", kType)
+	}
+	if kdf == algorithmScrypt {
+		return errors.New("minisign: private key is encrypted")
+	}
+	if kdf != algorithmNone {
+		return fmt.Errorf("minisign: invalid private key: invalid KDF '%d'", kdf)
+	}
+	if hType != algorithmBlake2b {
+		return fmt.Errorf("minisign: invalid private key: invalid hash type '%d'", hType)
+	}
+	if !bytes.Equal(salt[:], empty[:]) {
+		return errors.New("minisign: invalid private key: salt is not empty")
+	}
+	if scryptOps != 0 {
+		return errors.New("minisign: invalid private key: scrypt cost parameter is not zero")
+	}
+	if scryptMem != 0 {
+		return errors.New("minisign: invalid private key: scrypt mem parameter is not zero")
+	}
+	if !bytes.Equal(checksum, empty[:]) {
+		return errors.New("minisign: invalid private key: salt is not empty")
+	}
+
+	p.id = binary.LittleEndian.Uint64(key[:8])
+	copy(p.bytes[:], key[8:])
+	return nil
+}
+
 const (
-	scryptAlgorithm  = 0x6353 // hex value for "Sc"
-	blake2bAlgorithm = 0x3242 // hex value for "B2"
+	algorithmNone    = 0x0000 // hex value for KDF when key is not encrypted
+	algorithmScrypt  = 0x6353 // hex value for "Sc"
+	algorithmBlake2b = 0x3242 // hex value for "B2"
 
 	scryptOpsLimit = 0x2000000  // max. Scrypt ops limit based on libsodium
 	scryptMemLimit = 0x40000000 // max. Scrypt mem limit based on libsodium
@@ -125,8 +206,8 @@ func EncryptKey(password string, privateKey PrivateKey) ([]byte, error) {
 
 	var bytes [privateKeySize]byte
 	binary.LittleEndian.PutUint16(bytes[0:], EdDSA)
-	binary.LittleEndian.PutUint16(bytes[2:], scryptAlgorithm)
-	binary.LittleEndian.PutUint16(bytes[4:], blake2bAlgorithm)
+	binary.LittleEndian.PutUint16(bytes[2:], algorithmScrypt)
+	binary.LittleEndian.PutUint16(bytes[4:], algorithmBlake2b)
 
 	const ( // TODO(aead): Callers may want to customize the cost parameters
 		defaultOps = 33554432   // libsodium OPS_LIMIT_SENSITIVE
@@ -142,6 +223,22 @@ func EncryptKey(password string, privateKey PrivateKey) ([]byte, error) {
 	copy(encodedBytes, []byte(comment))
 	base64.StdEncoding.Encode(encodedBytes[len(comment):], bytes[:])
 	return encodedBytes, nil
+}
+
+// IsEncrypted reports whether the private key is encrypted.
+func IsEncrypted(privateKey []byte) bool {
+	privateKey = trimUntrustedComment(privateKey)
+	bytes := make([]byte, base64.StdEncoding.DecodedLen(len(privateKey)))
+	n, err := base64.StdEncoding.Decode(bytes, privateKey)
+	if err != nil {
+		return false
+	}
+	bytes = bytes[:n]
+
+	if len(bytes) != privateKeySize {
+		return false
+	}
+	return binary.LittleEndian.Uint16(bytes[2:4]) == algorithmScrypt
 }
 
 var errDecrypt = errors.New("minisign: decryption failed")
@@ -163,10 +260,10 @@ func DecryptKey(password string, privateKey []byte) (PrivateKey, error) {
 	if a := binary.LittleEndian.Uint16(bytes[:2]); a != EdDSA {
 		return PrivateKey{}, errDecrypt
 	}
-	if a := binary.LittleEndian.Uint16(bytes[2:4]); a != scryptAlgorithm {
+	if a := binary.LittleEndian.Uint16(bytes[2:4]); a != algorithmScrypt {
 		return PrivateKey{}, errDecrypt
 	}
-	if a := binary.LittleEndian.Uint16(bytes[4:6]); a != blake2bAlgorithm {
+	if a := binary.LittleEndian.Uint16(bytes[4:6]); a != algorithmBlake2b {
 		return PrivateKey{}, errDecrypt
 	}
 

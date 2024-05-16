@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"strconv"
 	"strings"
 
@@ -160,7 +159,7 @@ func ExampleReader() {
 
 	// Sign a data stream after processing it. (Here, we just discard it)
 	reader := minisign.NewReader(strings.NewReader(Message))
-	if _, err := io.Copy(ioutil.Discard, reader); err != nil {
+	if _, err := io.Copy(io.Discard, reader); err != nil {
 		panic(err) // TODO: error handling
 	}
 	signature := reader.Sign(privateKey)
@@ -168,7 +167,7 @@ func ExampleReader() {
 	// Read a data stream and then verify its authenticity with
 	// the public key.
 	reader = minisign.NewReader(strings.NewReader(Message))
-	message, err := ioutil.ReadAll(reader)
+	message, err := io.ReadAll(reader)
 	if err != nil {
 		panic(err) // TODO: error handling
 	}

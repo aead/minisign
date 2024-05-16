@@ -23,7 +23,7 @@ import (
 )
 
 const usage = `Usage:
-    minisign -G [-p <pubKey>] [-s <secKey>]
+    minisign -G [-p <pubKey>] [-s <secKey>] [-W]
     minisign -S [-x <signature>] [-s <secKey>] [-c <comment>] [-t <comment>] -m <file>...
     minisign -V [-H] [-x <signature>] [-p <pubKey> | -P <pubKey>] [-o] [-q | -Q ] -m <file>
     minisign -R [-s <secKey>] [-p <pubKey>]
@@ -38,6 +38,7 @@ Options:
     -p <pubKey>      Public key file (default: ./minisign.pub)
     -P <pubKey>      Public key as base64 string
     -s <secKey>      Secret key file (default: $HOME/.minisign/minisign.key)
+    -W               Do not encrypt/decrypt the secret key with a password.
     -x <signature>   Signature file (default: <file>.minisig)
     -c <comment>     Add a one-line untrusted comment.
     -t <comment>     Add a one-line trusted comment.
@@ -66,6 +67,7 @@ func main() {
 		pubKeyFileFlag       string
 		pubKeyFlag           string
 		secKeyFileFlag       string
+		unencryptedKeyFlag   bool
 		signatureFlag        string
 		untrustedCommentFlag string
 		trustedCommentFlag   string
@@ -84,6 +86,7 @@ func main() {
 	flag.StringVar(&pubKeyFileFlag, "p", "minisign.pub", "Public key file (default: minisign.pub")
 	flag.StringVar(&pubKeyFlag, "P", "", "Public key as base64 string")
 	flag.StringVar(&secKeyFileFlag, "s", filepath.Join(os.Getenv("HOME"), ".minisign/minisign.key"), "Secret key file (default: $HOME/.minisign/minisign.key")
+	flag.BoolVar(&unencryptedKeyFlag, "W", false, "Do not encrypt/decrypt the secret key with a password")
 	flag.StringVar(&signatureFlag, "x", "", "Signature file (default: <file>.minisig)")
 	flag.StringVar(&untrustedCommentFlag, "c", "", "Add a one-line untrusted comment")
 	flag.StringVar(&trustedCommentFlag, "t", "", "Add a one-line trusted comment")
@@ -102,7 +105,7 @@ func main() {
 
 	switch {
 	case keyGenFlag:
-		generateKeyPair(secKeyFileFlag, pubKeyFileFlag, forceFlag)
+		generateKeyPair(secKeyFileFlag, pubKeyFileFlag, forceFlag, unencryptedKeyFlag)
 	case signFlag:
 		signFiles(secKeyFileFlag, signatureFlag, untrustedCommentFlag, trustedCommentFlag, filesFlag...)
 	case verifyFlag:
@@ -115,7 +118,7 @@ func main() {
 	}
 }
 
-func generateKeyPair(secKeyFile, pubKeyFile string, force bool) {
+func generateKeyPair(secKeyFile, pubKeyFile string, force, unencrypted bool) {
 	if !force {
 		_, err := os.Stat(secKeyFile)
 		if err == nil {
@@ -145,29 +148,38 @@ func generateKeyPair(secKeyFile, pubKeyFile string, force bool) {
 		}
 	}
 
-	var password string
-	if term.IsTerminal(int(os.Stdin.Fd())) {
-		fmt.Print("Please enter a password to protect the secret key.\n\n")
-		password = readPassword(os.Stdin, "Enter Password: ")
-		passwordAgain := readPassword(os.Stdin, "Enter Password (one more time): ")
-		if password != passwordAgain {
-			log.Fatal("Error: passwords don't match")
-		}
-	} else {
-		password = readPassword(os.Stdin, "Enter Password: ")
-	}
 	publicKey, privateKey, err := minisign.GenerateKey(rand.Reader)
 	if err != nil {
 		log.Fatalf("Error: %v", err)
 	}
 
-	fmt.Print("Deriving a key from the password in order to encrypt the secret key... ")
-	encryptedPrivateKey, err := minisign.EncryptKey(password, privateKey)
-	if err != nil {
-		fmt.Println()
-		log.Fatalf("Error: %v", err)
+	var privateKeyBytes []byte
+	if unencrypted {
+		privateKeyBytes, err = privateKey.MarshalText()
+		if err != nil {
+			log.Fatalf("Error: %v", err)
+		}
+	} else {
+		var password string
+		if term.IsTerminal(int(os.Stdin.Fd())) {
+			fmt.Print("Please enter a password to protect the secret key.\n\n")
+			password = readPassword(os.Stdin, "Enter Password: ")
+			passwordAgain := readPassword(os.Stdin, "Enter Password (one more time): ")
+			if password != passwordAgain {
+				log.Fatal("Error: passwords don't match")
+			}
+		} else {
+			password = readPassword(os.Stdin, "Enter Password: ")
+		}
+
+		fmt.Print("Deriving a key from the password in order to encrypt the secret key... ")
+		privateKeyBytes, err = minisign.EncryptKey(password, privateKey)
+		if err != nil {
+			fmt.Println()
+			log.Fatalf("Error: %v", err)
+		}
+		fmt.Print("done\n\n")
 	}
-	fmt.Print("done\n\n")
 
 	fileFlags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
 	if !force {
@@ -178,7 +190,7 @@ func generateKeyPair(secKeyFile, pubKeyFile string, force bool) {
 		log.Fatalf("Error: %v", err)
 	}
 	defer skFile.Close()
-	if _, err = skFile.Write(encryptedPrivateKey); err != nil {
+	if _, err = skFile.Write(privateKeyBytes); err != nil {
 		log.Fatalf("Error: %v", err)
 	}
 
@@ -218,19 +230,25 @@ func signFiles(secKeyFile, sigFile, untrustedComment, trustedComment string, fil
 		}
 	}
 
-	encryptedPrivateKey, err := os.ReadFile(secKeyFile)
+	privateKeyBytes, err := os.ReadFile(secKeyFile)
 	if err != nil {
 		log.Fatalf("Error: %v", err)
 	}
-	password := readPassword(os.Stdin, "Enter password: ")
 
-	fmt.Print("Deriving a key from the password in order to decrypt the secret key... ")
-	privateKey, err := minisign.DecryptKey(password, encryptedPrivateKey)
-	if err != nil {
-		fmt.Println()
-		log.Fatalf("Error: invalid password: %v", err)
+	var privateKey minisign.PrivateKey
+	if minisign.IsEncrypted(privateKeyBytes) {
+		password := readPassword(os.Stdin, "Enter password: ")
+
+		fmt.Print("Deriving a key from the password in order to decrypt the secret key... ")
+		privateKey, err = minisign.DecryptKey(password, privateKeyBytes)
+		if err != nil {
+			fmt.Println()
+			log.Fatalf("Error: invalid password: %v", err)
+		}
+		fmt.Print("done\n\n")
+	} else if err = privateKey.UnmarshalText(privateKeyBytes); err != nil {
+		log.Fatalf("Error: %v", err)
 	}
-	fmt.Print("done\n\n")
 
 	if sigFile != "" {
 		if dir := filepath.Dir(sigFile); dir != "" && dir != "." && dir != "/" {
