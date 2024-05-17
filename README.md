@@ -75,8 +75,7 @@ On windows, linux and macOS, you can use the pre-built binaries:
 
 If your system has [Go1.16+](https://golang.org/dl/), you can build from source:
 ```
-git clone https://aead.dev/minisign && cd minisign
-go build -o . aead.dev/minisign/cmd/minisign
+git clone https://aead.dev/minisign && cd minisign && make build
 ```
 
 ## Library
