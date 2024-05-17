@@ -106,6 +106,8 @@ func (p PrivateKey) Equal(x crypto.PrivateKey) bool {
 //
 // For password-protected private keys refer to [EncryptKey].
 func (p PrivateKey) MarshalText() ([]byte, error) {
+	// A non-encrypted private key has the same format as an encrypted one.
+	// However, the salt, and auth. tag are set to all zero.
 	var b [privateKeySize]byte
 
 	binary.LittleEndian.PutUint16(b[:], EdDSA)
@@ -115,6 +117,8 @@ func (p PrivateKey) MarshalText() ([]byte, error) {
 	binary.LittleEndian.PutUint64(b[54:], p.id)
 	copy(b[62:], p.bytes[:])
 
+	// It seems odd that the comment says: "encrypted secret key".
+	// However, the original C implementation behaves like this.
 	const comment = "untrusted comment: minisign encrypted secret key\n"
 	encodedBytes := make([]byte, len(comment)+base64.StdEncoding.EncodedLen(len(b)))
 	copy(encodedBytes, []byte(comment))
@@ -140,7 +144,7 @@ func (p *PrivateKey) UnmarshalText(text []byte) error {
 	}
 
 	var (
-		empty [32]byte
+		empty [32]byte // For checking that the salt/tag are empty
 
 		kType     = binary.LittleEndian.Uint16(b)
 		kdf       = binary.LittleEndian.Uint16(b[2:])
@@ -149,7 +153,7 @@ func (p *PrivateKey) UnmarshalText(text []byte) error {
 		scryptOps = binary.LittleEndian.Uint64(b[38:])
 		scryptMem = binary.LittleEndian.Uint64(b[46:])
 		key       = b[54:126]
-		checksum  = b[126:privateKeySize]
+		tag       = b[126:privateKeySize]
 	)
 	if kType != EdDSA {
 		return fmt.Errorf("minisign: invalid private key: invalid key type '%d'", kType)
@@ -163,7 +167,7 @@ func (p *PrivateKey) UnmarshalText(text []byte) error {
 	if hType != algorithmBlake2b {
 		return fmt.Errorf("minisign: invalid private key: invalid hash type '%d'", hType)
 	}
-	if !bytes.Equal(salt[:], empty[:]) {
+	if !bytes.Equal(salt, empty[:]) {
 		return errors.New("minisign: invalid private key: salt is not empty")
 	}
 	if scryptOps != 0 {
@@ -172,11 +176,11 @@ func (p *PrivateKey) UnmarshalText(text []byte) error {
 	if scryptMem != 0 {
 		return errors.New("minisign: invalid private key: scrypt mem parameter is not zero")
 	}
-	if !bytes.Equal(checksum, empty[:]) {
+	if !bytes.Equal(tag, empty[:]) {
 		return errors.New("minisign: invalid private key: salt is not empty")
 	}
 
-	p.id = binary.LittleEndian.Uint64(key[:8])
+	p.id = binary.LittleEndian.Uint64(key)
 	copy(p.bytes[:], key[8:])
 	return nil
 }
@@ -235,10 +239,7 @@ func IsEncrypted(privateKey []byte) bool {
 	}
 	bytes = bytes[:n]
 
-	if len(bytes) != privateKeySize {
-		return false
-	}
-	return binary.LittleEndian.Uint16(bytes[2:4]) == algorithmScrypt
+	return len(bytes) >= 4 && binary.LittleEndian.Uint16(bytes[2:]) == algorithmScrypt
 }
 
 var errDecrypt = errors.New("minisign: decryption failed")
@@ -247,47 +248,50 @@ var errDecrypt = errors.New("minisign: decryption failed")
 // the given password.
 func DecryptKey(password string, privateKey []byte) (PrivateKey, error) {
 	privateKey = trimUntrustedComment(privateKey)
-	bytes := make([]byte, base64.StdEncoding.DecodedLen(len(privateKey)))
-	n, err := base64.StdEncoding.Decode(bytes, privateKey)
+	b := make([]byte, base64.StdEncoding.DecodedLen(len(privateKey)))
+	n, err := base64.StdEncoding.Decode(b, privateKey)
 	if err != nil {
 		return PrivateKey{}, err
 	}
-	bytes = bytes[:n]
+	b = b[:n]
 
-	if len(bytes) != privateKeySize {
+	if len(b) != privateKeySize {
 		return PrivateKey{}, errDecrypt
 	}
-	if a := binary.LittleEndian.Uint16(bytes[:2]); a != EdDSA {
-		return PrivateKey{}, errDecrypt
-	}
-	if a := binary.LittleEndian.Uint16(bytes[2:4]); a != algorithmScrypt {
-		return PrivateKey{}, errDecrypt
-	}
-	if a := binary.LittleEndian.Uint16(bytes[4:6]); a != algorithmBlake2b {
-		return PrivateKey{}, errDecrypt
-	}
-
 	var (
-		scryptOps = binary.LittleEndian.Uint64(bytes[38:46])
-		scryptMem = binary.LittleEndian.Uint64(bytes[46:54])
+		kType      = binary.LittleEndian.Uint16(b)
+		kdf        = binary.LittleEndian.Uint16(b[2:])
+		hType      = binary.LittleEndian.Uint16(b[4:])
+		salt       = b[6:38]
+		scryptOps  = binary.LittleEndian.Uint64(b[38:])
+		scryptMem  = binary.LittleEndian.Uint64(b[46:])
+		ciphertext = b[54:]
 	)
+	if kType != EdDSA {
+		return PrivateKey{}, errDecrypt
+	}
+	if kdf != algorithmScrypt {
+		return PrivateKey{}, errDecrypt
+	}
+	if hType != algorithmBlake2b {
+		return PrivateKey{}, errDecrypt
+	}
 	if scryptOps > scryptOpsLimit {
 		return PrivateKey{}, errDecrypt
 	}
 	if scryptMem > scryptMemLimit {
 		return PrivateKey{}, errDecrypt
 	}
-	var salt [32]byte
-	copy(salt[:], bytes[6:38])
-	privateKeyBytes, err := decryptKey(password, salt[:], scryptOps, scryptMem, bytes[54:])
+
+	plaintext, err := decryptKey(password, salt, scryptOps, scryptMem, ciphertext)
 	if err != nil {
 		return PrivateKey{}, err
 	}
 
 	key := PrivateKey{
-		id: binary.LittleEndian.Uint64(privateKeyBytes[:8]),
+		id: binary.LittleEndian.Uint64(plaintext),
 	}
-	copy(key.bytes[:], privateKeyBytes[8:])
+	copy(key.bytes[:], plaintext[8:])
 	return key, nil
 }
 
@@ -368,7 +372,7 @@ func decryptKey(password string, salt []byte, ops, mem uint64, ciphertext []byte
 	binary.LittleEndian.PutUint16(message[:2], EdDSA)
 	copy(message[2:], privateKeyBytes)
 
-	if sum := blake2b.Sum256(message[:]); subtle.ConstantTimeCompare(sum[:], checksum[:]) != 1 {
+	if sum := blake2b.Sum256(message[:]); subtle.ConstantTimeCompare(sum[:], checksum) != 1 {
 		return nil, errDecrypt
 	}
 	return privateKeyBytes, nil
