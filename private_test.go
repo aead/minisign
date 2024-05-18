@@ -13,32 +13,31 @@ import (
 )
 
 var marshalPrivateKeyTests = []struct {
+	File  string
 	ID    uint64
 	Bytes []byte
 }{
 	{
+		File:  "./internal/testdata/unencrypted-0.key",
 		ID:    htoi("3728470A8118E56E"),
 		Bytes: b64("JpjEI/XIKqIVl99tT611AxXwlVjlw2afJC8Nv6o7uuipyNvC3DmgO2csDT+bw1bZR3ss4rd5cXqoq0uftlCJqw=="),
 	},
 	{
+		File:  "./internal/testdata/unencrypted-1.key",
 		ID:    htoi("D7E531EE76B2FC6F"),
 		Bytes: b64("L24Gi2UbWOb/MBb4MzJLysgC1F1FnE/m72qhb7r5FMlHzHe6M6mCLPMzmj6ln+hI51kqpDqTkIg9VCaToAhZtA=="),
 	},
 }
 
 func TestPrivateKey_Marshal(t *testing.T) {
-	raw, err := os.ReadFile("./internal/testdata/unencrypted.key")
-	if err != nil {
-		t.Fatalf("Failed to read private key: %v", err)
-	}
-	raw = bytes.ReplaceAll(raw, []byte{'\r', '\n'}, []byte{'\n'})
-	raw = bytes.TrimSuffix(raw, []byte{'\n'})
-
-	keys := bytes.Split(raw, []byte{'\n', '\n'}) // Private keys are separated by a newline
-	if len(keys) != len(marshalPrivateKeyTests) {
-		t.Fatalf("Test vectors don't match: got %d - want %d", len(marshalPrivateKeyTests), len(keys))
-	}
 	for i, test := range marshalPrivateKeyTests {
+		raw, err := os.ReadFile(test.File)
+		if err != nil {
+			t.Fatalf("Failed to read private key: %v", err)
+		}
+		raw = bytes.ReplaceAll(raw, []byte{'\r', '\n'}, []byte{'\n'})
+		raw = bytes.TrimRight(raw, "\n")
+
 		key := PrivateKey{
 			id: test.ID,
 		}
@@ -48,27 +47,27 @@ func TestPrivateKey_Marshal(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Test %d: failed to marshal private key: %v", i, err)
 		}
-		if !bytes.Equal(text, keys[i]) {
-			t.Log(len(text), len(keys[i]))
-			t.Log(string(keys[i][len(keys[i])-1]))
-			t.Fatalf("Test %d: failed to marshal private key:\nGot: %v\nWant: %v\n", i, text, keys[i])
+		if !bytes.Equal(text, raw) {
+			t.Fatalf("Test %d: failed to marshal private key:\nGot: %v\nWant: %v\n", i, text, raw)
 		}
 	}
 }
 
-func TestPrivateKey_Unmarshal(t *testing.T) {
-	raw, err := os.ReadFile("./internal/testdata/unencrypted.key")
-	if err != nil {
-		t.Fatalf("Failed to read private key: %v", err)
-	}
-	raw = bytes.ReplaceAll(raw, []byte{'\r', '\n'}, []byte{'\n'})
-	raw = bytes.TrimSuffix(raw, []byte{'\n'})
+var unmarshalPrivateKeyTests = []string{
+	"./internal/testdata/unencrypted-0.key",
+	"./internal/testdata/unencrypted-1.key",
+}
 
-	keys := bytes.Split(raw, []byte{'\n', '\n'}) // Private keys are separated by a newline
-	for _, k := range keys {
+func TestPrivateKey_Unmarshal(t *testing.T) {
+	for i, file := range unmarshalPrivateKeyTests {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("Test %d: failed to read private key: %v", i, err)
+		}
+
 		var key PrivateKey
-		if err := key.UnmarshalText(k); err != nil {
-			t.Fatalf("Failed to unmarshal private key: %v\nPrivate key:\n%s", err, string(k))
+		if err := key.UnmarshalText(raw); err != nil {
+			t.Fatalf("Test %d: failed to unmarshal private key: %v\nPrivate key:\n%s", i, err, string(raw))
 		}
 
 		// Print test vector for marshaling:

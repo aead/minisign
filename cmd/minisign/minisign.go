@@ -11,7 +11,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -22,14 +21,19 @@ import (
 	"golang.org/x/term"
 )
 
+const version = "v0.2.1"
+
 const usage = `Usage:
     minisign -G [-p <pubKey>] [-s <secKey>] [-W]
+    minisign -R [-s <secKey>] [-p <pubKey>]
+    minisign -C [-s <secKey>] [-W]
     minisign -S [-x <signature>] [-s <secKey>] [-c <comment>] [-t <comment>] -m <file>...
     minisign -V [-H] [-x <signature>] [-p <pubKey> | -P <pubKey>] [-o] [-q | -Q ] -m <file>
-    minisign -R [-s <secKey>] [-p <pubKey>]
  
 Options:
     -G               Generate a new public/secret key pair.       
+    -R               Re-create a public key file from a secret key.
+    -C               Change or remove the password of the secret key.
     -S               Sign files with a secret key.
     -V               Verify files with a public key.
     -m <file>        The file to sign or verify.
@@ -44,387 +48,427 @@ Options:
     -t <comment>     Add a one-line trusted comment.
     -q               Quiet mode. Suppress output.
     -Q               Pretty quiet mode. Combined with -V, only print the trusted comment.
-    -R               Re-create a public key file from a secret key.
     -f               Combined with -G or -R, overwrite any existing public/secret key pair.
     -v               Print version information.
 `
 
-var version = "v0.0.0-dev"
+var (
+	flagKeyGen         bool // Generate a new key pair.
+	flagRestore        bool // Restore a public key from a private key
+	flagChangePassword bool // Update/Remove private key password
+	flagSign           bool // Sign files
+	flagVerify         bool // Verify signatures
+
+	flagPrivateKeyFile string        // Path to private key file
+	flagPublicKeyFile  string        // Path to public key flile
+	flagPublicKey      string        // Public key. Takes precedence over public key file
+	flagFiles          = filenames{} // List of files to sign/verify
+	flagSignatureFile  string        // Custom signature file. Defaults to <file>.minisig
+
+	flagTrustedComment   string // Custom comment that is signed and verified
+	flagUntrustedComment string // Custom comment that is NOT signed NOR verified
+
+	flagOutput          bool // Output files when verified successfully
+	flagPreHash         bool // Verify legacy signatures when files where pre-hashed
+	flagWithoutPassword bool // Whether a private key should be password-protected
+	flagPrettyQuiet     bool // Suppress output except for trusted comment after verification
+	flagQuiet           bool // Suppress all output
+	flagForce           bool // Overwrite existing private/public keys
+	flagVersion         bool // Print version information
+)
 
 func main() {
-	log.SetFlags(0)
-	log.SetOutput(os.Stderr)
-
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 
-	var (
-		keyGenFlag           bool
-		signFlag             bool
-		verifyFlag           bool
-		filesFlag            = multiFlag{}
-		outputFlag           bool
-		hashFlag             bool
-		pubKeyFileFlag       string
-		pubKeyFlag           string
-		secKeyFileFlag       string
-		unencryptedKeyFlag   bool
-		signatureFlag        string
-		untrustedCommentFlag string
-		trustedCommentFlag   string
-		quietFlag            bool
-		prettyQuietFlag      bool
-		recreateFlag         bool
-		forceFlag            bool
-		versionFlag          bool
-	)
-	flag.BoolVar(&keyGenFlag, "G", false, "Generate a new public/secret key pair")
-	flag.BoolVar(&signFlag, "S", false, "Sign files with a secret key")
-	flag.BoolVar(&verifyFlag, "V", false, "Verify files with a public key")
-	flag.Var(&filesFlag, "m", "One or multiple files to sign or verfiy")
-	flag.BoolVar(&outputFlag, "o", false, "Combined with -V, output the file after verification")
-	flag.BoolVar(&hashFlag, "H", false, "Combined with -S, pre-hash in order to sign large files")
-	flag.StringVar(&pubKeyFileFlag, "p", "minisign.pub", "Public key file (default: minisign.pub")
-	flag.StringVar(&pubKeyFlag, "P", "", "Public key as base64 string")
-	flag.StringVar(&secKeyFileFlag, "s", filepath.Join(os.Getenv("HOME"), ".minisign/minisign.key"), "Secret key file (default: $HOME/.minisign/minisign.key")
-	flag.BoolVar(&unencryptedKeyFlag, "W", false, "Do not encrypt/decrypt the secret key with a password")
-	flag.StringVar(&signatureFlag, "x", "", "Signature file (default: <file>.minisig)")
-	flag.StringVar(&untrustedCommentFlag, "c", "", "Add a one-line untrusted comment")
-	flag.StringVar(&trustedCommentFlag, "t", "", "Add a one-line trusted comment")
-	flag.BoolVar(&quietFlag, "q", false, "Quiet mode. Suppress output")
-	flag.BoolVar(&prettyQuietFlag, "Q", false, "Pretty quiet mode. Combined with -V, only print the trusted comment")
-	flag.BoolVar(&recreateFlag, "R", false, "Re-create a public key file from a secret key")
-	flag.BoolVar(&forceFlag, "f", false, "Combined with -G, overwrite any existing public/secret key pair")
-	flag.BoolVar(&versionFlag, "v", false, "Print version information")
+	flag.BoolVar(&flagKeyGen, "G", false, "")
+	flag.BoolVar(&flagRestore, "R", false, "")
+	flag.BoolVar(&flagChangePassword, "C", false, "")
+	flag.BoolVar(&flagSign, "S", false, "")
+	flag.BoolVar(&flagVerify, "V", false, "")
+
+	flag.StringVar(&flagPrivateKeyFile, "s", filepath.Join(homedir(), ".minisign/minisign.key"), "")
+	flag.StringVar(&flagPublicKeyFile, "p", "minisign.pub", "")
+	flag.StringVar(&flagPublicKey, "P", "", "")
+	flag.Var(&flagFiles, "m", "")
+	flag.StringVar(&flagSignatureFile, "x", "", "")
+
+	flag.StringVar(&flagTrustedComment, "t", "", "")
+	flag.StringVar(&flagUntrustedComment, "c", "", "")
+
+	flag.BoolVar(&flagOutput, "o", false, "")
+	flag.BoolVar(&flagPreHash, "H", false, "")
+	flag.BoolVar(&flagWithoutPassword, "W", false, "")
+	flag.BoolVar(&flagPrettyQuiet, "Q", false, "")
+	flag.BoolVar(&flagQuiet, "q", false, "")
+	flag.BoolVar(&flagForce, "f", false, "")
+	flag.BoolVar(&flagVersion, "v", false, "")
+
 	os.Args = append(os.Args[:1:1], expandFlags(os.Args[1:])...) // Expand flags to parse combined flags '-Vm' or '-Gf' properly
 	flag.Parse()
 
-	if versionFlag {
+	if flagVersion {
 		fmt.Printf("minisign %s on %s-%s\n", version, runtime.GOOS, runtime.GOARCH)
 		return
 	}
 
 	switch {
-	case keyGenFlag:
-		generateKeyPair(secKeyFileFlag, pubKeyFileFlag, forceFlag, unencryptedKeyFlag)
-	case signFlag:
-		signFiles(secKeyFileFlag, signatureFlag, untrustedCommentFlag, trustedCommentFlag, filesFlag...)
-	case verifyFlag:
-		verifyFile(signatureFlag, pubKeyFileFlag, pubKeyFlag, outputFlag, quietFlag, prettyQuietFlag, hashFlag, filesFlag...)
-	case recreateFlag:
-		recreateKeyPair(secKeyFileFlag, pubKeyFileFlag, forceFlag)
+	case flagKeyGen:
+		generateKeyPair()
+	case flagRestore:
+		restorePublicKey()
+	case flagChangePassword:
+		changePassword()
+	case flagSign:
+		signFiles()
+	case flagVerify:
+		verifyFile()
 	default:
 		flag.Usage()
 		os.Exit(1)
 	}
 }
 
-func generateKeyPair(secKeyFile, pubKeyFile string, force, unencrypted bool) {
-	if !force {
-		_, err := os.Stat(secKeyFile)
-		if err == nil {
-			log.Fatalf("Error: %s already exists. Use -f if you really want to overwrite the existing key pair", secKeyFile)
-		}
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			log.Fatalf("Error: %v", err)
-		}
+func generateKeyPair() {
+	// Create private and public key parent directories
+	mkdirs(filepath.Dir(flagPrivateKeyFile))
+	mkdirs(filepath.Dir(flagPublicKeyFile))
 
-		_, err = os.Stat(pubKeyFile)
-		if err == nil {
-			log.Fatalf("Error: %s already exists. Use -f if you really want to overwrite the existing key pair", pubKeyFile)
+	// Check whether private / public key already exists
+	if !flagForce {
+		if _, err := os.Stat(flagPrivateKeyFile); !errors.Is(err, os.ErrNotExist) {
+			if err == nil {
+				exitf("Error: %s already exists. Use -f if you really want to overwrite the existing key pair", flagPrivateKeyFile)
+			}
+			exitf("Error: %v", err)
 		}
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			log.Fatalf("Error: %v", err)
+		if _, err := os.Stat(flagPublicKeyFile); !errors.Is(err, os.ErrNotExist) {
+			if err == nil {
+				exitf("Error: %s already exists. Use -f if you really want to overwrite the existing key pair", flagPublicKeyFile)
+			}
+			exitf("Error: %v", err)
 		}
 	}
 
-	if dir := filepath.Dir(secKeyFile); dir != "" && dir != "." && dir != "/" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			log.Fatalf("Error: %v", err)
-		}
-	}
-	if dir := filepath.Dir(pubKeyFile); dir != "" && dir != "." && dir != "/" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			log.Fatalf("Error: %v", err)
-		}
-	}
-
+	// Generate public / private key pair
 	publicKey, privateKey, err := minisign.GenerateKey(rand.Reader)
 	if err != nil {
-		log.Fatalf("Error: %v", err)
+		exitf("Error: %v", err)
+	}
+	pubKey, err := publicKey.MarshalText()
+	if err != nil {
+		exitf("Error: %v", err)
 	}
 
-	var privateKeyBytes []byte
-	if unencrypted {
-		privateKeyBytes, err = privateKey.MarshalText()
-		if err != nil {
-			log.Fatalf("Error: %v", err)
+	// Marshal or encrypt private key
+	var privKey []byte
+	if flagWithoutPassword {
+		if privKey, err = privateKey.MarshalText(); err != nil {
+			exitf("Error: %v", err)
 		}
 	} else {
 		var password string
-		if term.IsTerminal(int(os.Stdin.Fd())) {
+		if isTerm(os.Stdin) {
 			fmt.Print("Please enter a password to protect the secret key.\n\n")
-			password = readPassword(os.Stdin, "Enter Password: ")
-			passwordAgain := readPassword(os.Stdin, "Enter Password (one more time): ")
+			password = readPassword(os.Stdin, "Password: ")
+			passwordAgain := readPassword(os.Stdin, "Password (one more time): ")
 			if password != passwordAgain {
-				log.Fatal("Error: passwords don't match")
+				exit("Error: passwords don't match")
 			}
 		} else {
-			password = readPassword(os.Stdin, "Enter Password: ")
+			password = readPassword(os.Stdin, "Password: ")
 		}
 
 		fmt.Print("Deriving a key from the password in order to encrypt the secret key... ")
-		privateKeyBytes, err = minisign.EncryptKey(password, privateKey)
+		privKey, err = minisign.EncryptKey(password, privateKey)
 		if err != nil {
 			fmt.Println()
-			log.Fatalf("Error: %v", err)
+			exitf("Error: %v", err)
 		}
 		fmt.Print("done\n\n")
 	}
 
-	fileFlags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
-	if !force {
-		fileFlags |= os.O_EXCL // fail if the file already exists
+	// Save public and private key
+	if err = os.WriteFile(flagPrivateKeyFile, privKey, 0o600); err != nil {
+		exitf("Error: %v", err)
 	}
-	skFile, err := os.OpenFile(secKeyFile, fileFlags, 0o600)
-	if err != nil {
-		log.Fatalf("Error: %v", err)
-	}
-	defer skFile.Close()
-	if _, err = skFile.Write(privateKeyBytes); err != nil {
-		log.Fatalf("Error: %v", err)
+	if err = os.WriteFile(flagPublicKeyFile, pubKey, 0o644); err != nil {
+		exitf("Error: %v", err)
 	}
 
-	pkFile, err := os.OpenFile(pubKeyFile, fileFlags, 0o644)
-	if err != nil {
-		log.Fatalf("Error: %v", err)
-	}
-	defer pkFile.Close()
-
-	rawPublicKey, _ := publicKey.MarshalText()
-	if _, err = pkFile.Write(rawPublicKey); err != nil {
-		log.Fatalf("Error: %v", err)
-	}
-
-	fmt.Printf("The secret key was saved as %s - Keep it secret!\n", secKeyFile)
-	fmt.Printf("The public key was saved as %s - That one can be public.\n", pubKeyFile)
-	fmt.Println()
-	fmt.Println("Files signed using this key pair can be verified with the following command:")
-	fmt.Println()
-	fmt.Printf("minisign -Vm <file> -P %s\n", publicKey)
+	var b = &strings.Builder{}
+	fmt.Fprintf(b, "The secret key was saved as %s - Keep it secret!\n", flagPrivateKeyFile)
+	fmt.Fprintf(b, "The public key was saved as %s - That one can be public.\n", flagPublicKeyFile)
+	fmt.Fprintln(b)
+	fmt.Fprintln(b, "Files signed using this key pair can be verified with the following command:")
+	fmt.Fprintln(b)
+	fmt.Fprintf(b, "minisign -Vm <file> -P %s\n", publicKey)
+	fmt.Print(b)
 }
 
-func signFiles(secKeyFile, sigFile, untrustedComment, trustedComment string, files ...string) {
-	if len(files) == 0 {
-		log.Fatal("Error: no files to sign. Use -m to specify one or more file paths")
+func signFiles() {
+	if len(flagFiles) == 0 {
+		exit("Error: no files to sign. Use -m to specify one or more file paths")
 	}
-	if len(files) > 1 && sigFile != "" {
-		log.Fatal("Error: -x cannot be used when more than one file should be signed")
-	}
-	for _, name := range files {
-		stat, err := os.Stat(name)
-		if err != nil {
-			log.Fatalf("Error: %v", err)
-		}
-		if stat.IsDir() {
-			log.Fatalf("Error: %s is a directory", name)
-		}
+	if len(flagFiles) > 1 && flagSignatureFile != "" {
+		exit("Error: -x cannot be used when more than one file should be signed")
 	}
 
-	privateKeyBytes, err := os.ReadFile(secKeyFile)
+	var key minisign.PrivateKey
+	keyBytes, err := os.ReadFile(flagPrivateKeyFile)
 	if err != nil {
-		log.Fatalf("Error: %v", err)
+		exitf("Error: %v", err)
 	}
-
-	var privateKey minisign.PrivateKey
-	if minisign.IsEncrypted(privateKeyBytes) {
-		password := readPassword(os.Stdin, "Enter password: ")
-
+	if minisign.IsEncrypted(keyBytes) {
+		password := readPassword(os.Stdin, "Password: ")
 		fmt.Print("Deriving a key from the password in order to decrypt the secret key... ")
-		privateKey, err = minisign.DecryptKey(password, privateKeyBytes)
-		if err != nil {
+		if key, err = minisign.DecryptKey(password, keyBytes); err != nil {
 			fmt.Println()
-			log.Fatalf("Error: invalid password: %v", err)
+			exitf("Error: invalid password: %v", err)
 		}
 		fmt.Print("done\n\n")
-	} else if err = privateKey.UnmarshalText(privateKeyBytes); err != nil {
-		log.Fatalf("Error: %v", err)
+	} else if err = key.UnmarshalText(keyBytes); err != nil {
+		exitf("Error: %v", err)
 	}
 
-	if sigFile != "" {
-		if dir := filepath.Dir(sigFile); dir != "" && dir != "." && dir != "/" {
-			if err := os.MkdirAll(dir, 0o755); err != nil {
-				log.Fatalf("Error: %v", err)
-			}
-		}
+	if flagSignatureFile != "" {
+		mkdirs(filepath.Dir(flagSignatureFile))
 	}
-
-	for _, name := range files {
-		var signature []byte
-		file, err := os.Open(name)
-		if err != nil {
-			log.Fatalf("Error: %v", err)
-		}
-
-		tComment, uComment := trustedComment, untrustedComment
+	for _, name := range flagFiles {
+		tComment, uComment := flagTrustedComment, flagUntrustedComment
 		if uComment == "" {
 			uComment = "signature from minisign secret key"
 		}
 		if tComment == "" {
 			tComment = fmt.Sprintf("timestamp:%d\tfilename:%s", time.Now().Unix(), filepath.Base(name))
 		}
-		reader := minisign.NewReader(file)
-		if _, err = io.Copy(io.Discard, reader); err != nil {
-			file.Close()
-			log.Fatalf("Error: %v", err)
-		}
-		signature = reader.SignWithComments(privateKey, tComment, uComment)
-		file.Close()
 
-		signatureFile := name + ".minisig"
-		if sigFile != "" {
-			signatureFile = sigFile
+		file, err := os.Open(name)
+		if err != nil {
+			exitf("Error: %v", err)
+		}
+		if stat, _ := file.Stat(); stat != nil && stat.IsDir() {
+			exitf("Error: %s is a directory", name)
+		}
+
+		reader := minisign.NewReader(file)
+		_, err = io.Copy(io.Discard, reader)
+		if _ = file.Close(); err != nil {
+			exitf("Error: %v", err)
+		}
+
+		signature := reader.SignWithComments(key, tComment, uComment)
+		signatureFile := flagSignatureFile
+		if signatureFile == "" {
+			signatureFile = name + ".minisig"
 		}
 		if err = os.WriteFile(signatureFile, signature, 0o644); err != nil {
-			log.Fatalf("Error: %v", err)
+			exitf("Error: %v", err)
 		}
 	}
 }
 
-func verifyFile(sigFile, pubFile, pubKeyString string, printOutput, quiet, prettyQuiet, requireHash bool, files ...string) {
-	if len(files) == 0 {
-		log.Fatalf("Error: no files to verify. Use -m to specify a file path")
+func verifyFile() {
+	if len(flagFiles) == 0 {
+		exitf("Error: no files to verify. Use -m to specify a file path")
 	}
-	if len(files) > 1 {
-		log.Fatalf("Error: too many files to verify. Only one file can be specified")
-	}
-	if sigFile == "" {
-		sigFile = files[0] + ".minisig"
+	if len(flagFiles) > 1 {
+		exitf("Error: too many files to verify. Only one file can be specified")
 	}
 
-	var (
-		publicKey minisign.PublicKey
-		err       error
-	)
-	if pubKeyString != "" {
-		if err = publicKey.UnmarshalText([]byte(pubKeyString)); err != nil {
-			log.Fatalf("Error: invalid public key: %v", err)
+	signatureFile := flagSignatureFile
+	if signatureFile == "" {
+		signatureFile = flagFiles[0] + ".minisig"
+	}
+
+	var publicKey minisign.PublicKey
+	if flagPublicKey != "" {
+		if err := publicKey.UnmarshalText([]byte(flagPublicKey)); err != nil {
+			exitf("Error: invalid public key: %v", err)
 		}
 	} else {
-		publicKey, err = minisign.PublicKeyFromFile(pubFile)
-		if err != nil {
-			log.Fatalf("Error: %v", err)
+		var err error
+		if publicKey, err = minisign.PublicKeyFromFile(flagPublicKeyFile); err != nil {
+			exitf("Error: %v", err)
 		}
 	}
 
-	signature, err := minisign.SignatureFromFile(sigFile)
+	signature, err := minisign.SignatureFromFile(signatureFile)
 	if err != nil {
-		log.Fatalf("Error: %v", err)
+		exitf("Error: %v", err)
 	}
 	if signature.KeyID != publicKey.ID() {
-		log.Fatalf("Error: key IDs do not match. Try a different public key.\nID (public key): %X\nID (signature) : %X", publicKey.ID(), signature.KeyID)
+		exitf("Error: key IDs do not match. Try a different public key.\nID (public key): %X\nID (signature) : %X", publicKey.ID(), signature.KeyID)
 	}
 
-	rawSignature, _ := signature.MarshalText()
-	if requireHash && signature.Algorithm != minisign.HashEdDSA {
-		log.Fatal("Legacy (non-prehashed) signature found")
+	rawSignature, err := signature.MarshalText()
+	if err != nil {
+		exitf("Error: %v", err)
 	}
-	if signature.Algorithm == minisign.HashEdDSA || requireHash {
-		file, err := os.Open(files[0])
+	if flagPreHash && signature.Algorithm != minisign.HashEdDSA {
+		exit("Legacy (non-prehashed) signature found")
+	}
+	if signature.Algorithm == minisign.HashEdDSA || flagPreHash {
+		file, err := os.Open(flagFiles[0])
 		if err != nil {
-			log.Fatalf("Error: %v", err)
+			exitf("Error: %v", err)
 		}
+		defer file.Close()
+
 		reader := minisign.NewReader(file)
 		if _, err = io.Copy(io.Discard, reader); err != nil {
-			file.Close()
-			log.Fatalf("Error: %v", err)
+			exitf("Error: %v", err)
 		}
-
 		if !reader.Verify(publicKey, rawSignature) {
-			file.Close()
-			log.Fatal("Error: signature verification failed")
+			exit("Error: signature verification failed")
 		}
-		if !quiet {
-			if !prettyQuiet {
+		if !flagQuiet {
+			if !flagPrettyQuiet {
 				fmt.Println("Signature and comment signature verified")
 			}
 			fmt.Println("Trusted comment:", signature.TrustedComment)
 		}
-		if printOutput {
+
+		if flagOutput {
 			if _, err = file.Seek(0, io.SeekStart); err != nil {
-				file.Close()
-				log.Fatalf("Error: %v", err)
+				exitf("Error: %v", err)
 			}
 			if _, err = io.Copy(os.Stdout, bufio.NewReader(file)); err != nil {
-				file.Close()
-				log.Fatalf("Error: %v", err)
+				exitf("Error: %v", err)
 			}
 		}
-		file.Close()
+		return
+	}
+
+	message, err := os.ReadFile(flagFiles[0])
+	if err != nil {
+		exitf("Error: %v", err)
+	}
+	if !minisign.Verify(publicKey, message, rawSignature) {
+		exit("Error: signature verification failed")
+	}
+	if !flagQuiet {
+		if !flagPrettyQuiet {
+			fmt.Println("Signature and comment signature verified")
+		}
+		fmt.Println("Trusted comment:", signature.TrustedComment)
+	}
+	if flagOutput {
+		os.Stdout.Write(message)
+	}
+}
+
+func restorePublicKey() {
+	if !flagForce {
+		if _, err := os.Stat(flagPublicKeyFile); err == nil {
+			exitf("Error: %s already exists. Use -f if you really want to overwrite the existing key pair", flagPublicKeyFile)
+		}
+	}
+
+	var privateKey minisign.PrivateKey
+	keyBytes, err := os.ReadFile(flagPrivateKeyFile)
+	if err != nil {
+		exitf("Error: %v", err)
+	}
+	if minisign.IsEncrypted(keyBytes) {
+		password := readPassword(os.Stdin, "Password: ")
+		fmt.Print("Deriving a key from the password in order to decrypt the secret key... ")
+		if privateKey, err = minisign.DecryptKey(password, keyBytes); err != nil {
+			fmt.Println()
+			exitf("Error: invalid password: %v", err)
+		}
+		fmt.Println("done")
+	} else if err = privateKey.UnmarshalText(keyBytes); err != nil {
+		exitf("Error: %v", err)
+	}
+
+	publicKey, err := privateKey.Public().(minisign.PublicKey).MarshalText()
+	if err != nil {
+		exitf("Error: %v", err)
+	}
+	if err = os.WriteFile(flagPublicKeyFile, publicKey, 0o644); err != nil {
+		exitf("Error: %v", err)
+	}
+}
+
+func changePassword() {
+	keyBytes, err := os.ReadFile(flagPrivateKeyFile)
+	if err != nil {
+		exitf("Error: %v", err)
+	}
+
+	// minisign always prints this message - even if the private key is not encrypted
+	if flagWithoutPassword {
+		fmt.Printf("Key encryption for [%s] is going to be removed.\n", flagPrivateKeyFile)
+	}
+
+	// Unmarshal or decrypt private key
+	var privateKey minisign.PrivateKey
+	if minisign.IsEncrypted(keyBytes) {
+		password := readPassword(os.Stdin, "Password: ")
+		fmt.Print("Deriving a key from the password in order to decrypt the secret key... ")
+		privateKey, err = minisign.DecryptKey(password, keyBytes)
+		if err != nil {
+			fmt.Println()
+			exitf("Error: invalid password: %v", err)
+		}
+		fmt.Print("done\n\n")
+	} else if err = privateKey.UnmarshalText(keyBytes); err != nil {
+		exitf("Error: %v", err)
+	}
+
+	// Marshal or encrypt private key
+	if flagWithoutPassword {
+		if keyBytes, err = privateKey.MarshalText(); err != nil {
+			exitf("Error: %v", err)
+		}
 	} else {
-		message, err := os.ReadFile(files[0])
-		if err != nil {
-			log.Fatalf("Error: %v", err)
-		}
-		if !minisign.Verify(publicKey, message, rawSignature) {
-			log.Fatal("Error: signature verification failed")
-		}
-		if !quiet {
-			if !prettyQuiet {
-				fmt.Println("Signature and comment signature verified")
+		var password string
+		if isTerm(os.Stdin) {
+			fmt.Print("Please enter a password to protect the secret key.\n\n")
+			password = readPassword(os.Stdin, "Password: ")
+			passwordAgain := readPassword(os.Stdin, "Password (one more time): ")
+			if password != passwordAgain {
+				exit("Error: passwords don't match")
 			}
-			fmt.Println("Trusted comment:", signature.TrustedComment)
+		} else {
+			password = readPassword(os.Stdin, "Password: ")
 		}
-		if printOutput {
-			os.Stdout.Write(message)
+
+		fmt.Print("Deriving a key from the password in order to encrypt the secret key... ")
+		if keyBytes, err = minisign.EncryptKey(password, privateKey); err != nil {
+			fmt.Println()
+			exitf("Error: %v", err)
 		}
+	}
+
+	// Save private key. Use rename to prevent corrupting a private on write failure.
+	if err = os.WriteFile(flagPrivateKeyFile+".tmp", keyBytes, 0o600); err != nil {
+		exitf("Error: %v", err)
+	}
+	if err = os.Rename(flagPrivateKeyFile+".tmp", flagPrivateKeyFile); err != nil {
+		exitf("Error: %v", err)
+	}
+	if flagWithoutPassword {
+		fmt.Println("Password removed.") // Again, minisign always prints this message
+	} else {
+		fmt.Println("done\n\nPassword updated.")
 	}
 }
 
-func recreateKeyPair(secKeyFile, pubKeyFile string, force bool) {
-	if !force {
-		if _, err := os.Stat(pubKeyFile); err == nil {
-			log.Fatalf("Error: %s already exists. Use -f if you really want to overwrite the existing key pair", pubKeyFile)
-		}
-	}
-	if _, err := os.Stat(secKeyFile); err != nil {
-		log.Fatalf("Error: %v", err)
-	}
+type filenames []string
 
-	password := readPassword(os.Stdin, "Enter password: ")
-	fmt.Print("Deriving a key from the password in order to encrypt the secret key... ")
-	privateKey, err := minisign.PrivateKeyFromFile(password, secKeyFile)
-	if err != nil {
-		fmt.Println()
-		log.Fatalf("Error: invalid password: %v", err)
-	}
-	fmt.Println("done")
+var _ flag.Value = (*filenames)(nil) // compiler check
 
-	publicKey := privateKey.Public().(minisign.PublicKey)
-	rawPublicKey, _ := publicKey.MarshalText()
-	if err = os.WriteFile(pubKeyFile, rawPublicKey, 0o644); err != nil {
-		log.Fatalf("Error: %v", err)
-	}
+func (f *filenames) String() string { return fmt.Sprint(*f) }
+
+func (f *filenames) Set(value string) error {
+	*f = append(*f, value)
+	return nil
 }
 
-func readPassword(file *os.File, message string) string {
-	if !term.IsTerminal(int(file.Fd())) { // If file is not a terminal read the password directly from it
-		p, err := bufio.NewReader(file).ReadString('\n')
-		if err != nil {
-			log.Fatalf("Error: failed to read password: %v", err)
-		}
-		return strings.TrimSuffix(p, "\n") // ReadString contains the trailing '\n'
-	}
-
-	fmt.Fprint(file, message)
-	p, err := term.ReadPassword(int(file.Fd()))
-	fmt.Fprintln(file)
-
-	if err != nil {
-		log.Fatalf("Error: failed to read password: %v", err)
-	}
-	return string(p)
-}
-
+// expandFlags expands args such that the flag package can parse them.
+// For example, the arguments '-Voqm foo.txt bar.txt' are expanded to
+// '-V -o -q -m foo.txt bar.txt'.
 func expandFlags(args []string) []string {
 	expArgs := make([]string, 0, len(args))
 	for _, arg := range args {
@@ -445,13 +489,77 @@ func expandFlags(args []string) []string {
 	return expArgs
 }
 
-type multiFlag []string
+// homedir returns the platform's user home directory.
+// If no home directory can be detected, it aborts the
+// program.
+func homedir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		exitf("Error: failed to detect home directory: %v", err)
+	}
+	return home
+}
 
-var _ flag.Value = (*multiFlag)(nil) // compiler check
+// mkdirs creates the directory p, and any non-existing
+// parent directories, unless p is empty, "." or a single
+// path separator.
+func mkdirs(p string) {
+	if p == "" {
+		return
+	}
+	if len(p) > 1 || (p[0] != '.' && !os.IsPathSeparator(p[0])) {
+		if err := os.Mkdir(p, 0o755); !errors.Is(err, os.ErrExist) {
+			if errors.Is(err, os.ErrNotExist) {
+				err = os.MkdirAll(p, 0o755)
+			}
+			if err != nil {
+				exitf("Error: %v", err)
+			}
+		}
+	}
+}
 
-func (f *multiFlag) String() string { return fmt.Sprint(*f) }
+// readPassword reads a password from the file descriptor.
+// If file is a terminal, it prints the message before waiting
+// for the user to enter the password.
+func readPassword(file *os.File, message string) string {
+	if !isTerm(file) { // If file is not a terminal read the password directly from it
+		p, err := bufio.NewReader(file).ReadString('\n')
+		if err != nil {
+			exitf("Error: failed to read password: %v", err)
+		}
 
-func (f *multiFlag) Set(value string) error {
-	*f = append(*f, value)
-	return nil
+		// ReadString returns a string with the trailing newline
+		if strings.HasSuffix(p, "\r\n") {
+			return strings.TrimSuffix(p, "\r\n") // windows
+		}
+		return strings.TrimSuffix(p, "\n") // unix
+	}
+
+	fmt.Fprint(file, message)
+	p, err := term.ReadPassword(int(file.Fd()))
+	fmt.Fprintln(file)
+
+	if err != nil {
+		exitf("Error: failed to read password: %v", err)
+	}
+	return string(p)
+}
+
+// isTerm reports whether fd is a terminal
+func isTerm(fd *os.File) bool { return term.IsTerminal(int(fd.Fd())) }
+
+// exit formats and prints its args to stderr before exiting
+// the program.
+func exit(args ...any) {
+	fmt.Println()
+	fmt.Fprintln(os.Stderr, args...)
+	os.Exit(1)
+}
+
+// exitf formats and prints its args to stderr before exiting
+// the program.
+func exitf(format string, args ...any) {
+	fmt.Fprintln(os.Stderr, fmt.Sprintf(format, args...))
+	os.Exit(1)
 }

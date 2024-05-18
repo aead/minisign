@@ -5,7 +5,6 @@
 package minisign
 
 import (
-	"bytes"
 	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -144,16 +143,10 @@ func (p *PrivateKey) UnmarshalText(text []byte) error {
 	}
 
 	var (
-		empty [32]byte // For checking that the salt/tag are empty
-
-		kType     = binary.LittleEndian.Uint16(b)
-		kdf       = binary.LittleEndian.Uint16(b[2:])
-		hType     = binary.LittleEndian.Uint16(b[4:])
-		salt      = b[6:38]
-		scryptOps = binary.LittleEndian.Uint64(b[38:])
-		scryptMem = binary.LittleEndian.Uint64(b[46:])
-		key       = b[54:126]
-		tag       = b[126:privateKeySize]
+		kType = binary.LittleEndian.Uint16(b)
+		kdf   = binary.LittleEndian.Uint16(b[2:])
+		hType = binary.LittleEndian.Uint16(b[4:])
+		key   = b[54:126]
 	)
 	if kType != EdDSA {
 		return fmt.Errorf("minisign: invalid private key: invalid key type '%d'", kType)
@@ -166,18 +159,6 @@ func (p *PrivateKey) UnmarshalText(text []byte) error {
 	}
 	if hType != algorithmBlake2b {
 		return fmt.Errorf("minisign: invalid private key: invalid hash type '%d'", hType)
-	}
-	if !bytes.Equal(salt, empty[:]) {
-		return errors.New("minisign: invalid private key: salt is not empty")
-	}
-	if scryptOps != 0 {
-		return errors.New("minisign: invalid private key: scrypt cost parameter is not zero")
-	}
-	if scryptMem != 0 {
-		return errors.New("minisign: invalid private key: scrypt mem parameter is not zero")
-	}
-	if !bytes.Equal(tag, empty[:]) {
-		return errors.New("minisign: invalid private key: salt is not empty")
 	}
 
 	p.id = binary.LittleEndian.Uint64(key)
