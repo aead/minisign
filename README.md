@@ -3,6 +3,7 @@
 [![latest](https://badgen.net/github/tag/aead/minisign)](https://github.com/aead/minisign/releases/latest)
 
 # minisign
+
 minisign is a dead simple tool to sign files and verify signatures.
 
 ```
@@ -37,13 +38,16 @@ This is a Go implementation of the [original C implementation](https://github.co
 
 ```
 Usage:
-    minisign -G [-p <pubKey>] [-s <secKey>]
+    minisign -G [-p <pubKey>] [-s <secKey>] [-W]
+    minisign -R [-s <secKey>] [-p <pubKey>]
+    minisign -C [-s <secKey>] [-W]
     minisign -S [-x <signature>] [-s <secKey>] [-c <comment>] [-t <comment>] -m <file>...
     minisign -V [-H] [-x <signature>] [-p <pubKey> | -P <pubKey>] [-o] [-q | -Q ] -m <file>
-    minisign -R [-s <secKey>] [-p <pubKey>]
- 
+
 Options:
-    -G               Generate a new public/secret key pair.       
+    -G               Generate a new public/secret key pair.
+    -R               Re-create a public key file from a secret key.
+    -C               Change or remove the password of the secret key.
     -S               Sign files with a secret key.
     -V               Verify files with a public key.
     -m <file>        The file to sign or verify.
@@ -52,19 +56,24 @@ Options:
     -p <pubKey>      Public key file (default: ./minisign.pub)
     -P <pubKey>      Public key as base64 string
     -s <secKey>      Secret key file (default: $HOME/.minisign/minisign.key)
+    -W               Do not encrypt/decrypt the secret key with a password.
     -x <signature>   Signature file (default: <file>.minisig)
     -c <comment>     Add a one-line untrusted comment.
     -t <comment>     Add a one-line trusted comment.
     -q               Quiet mode. Suppress output.
     -Q               Pretty quiet mode. Combined with -V, only print the trusted comment.
-    -R               Re-create a public key file from a secret key.
     -f               Combined with -G or -R, overwrite any existing public/secret key pair.
     -v               Print version information.
 ```
 
 ## Installation
 
-On windows, linux and macOS, you can use the pre-built binaries:
+With an up-to-date Go toolchain:
+```
+go install aead.dev/minisign/cmd/minisign@latest
+```
+
+On windows, linux and macOS, you can also use the pre-built binaries:
 | OS        | ARCH    | Latest Release                                                                                                         |
 |:---------:|:-------:|:-----------------------------------------------------------------------------------------------------------------------|
 | Linux     | amd64   | [minisign-linux-amd64.tar.gz](https://github.com/aead/minisign/releases/download/v0.2.1/minisign-linux-amd64.tar.gz)   |
@@ -73,10 +82,15 @@ On windows, linux and macOS, you can use the pre-built binaries:
 | MacOS     | amd64   | [minisign-darwin-amd64.tar.gz](https://github.com/aead/minisign/releases/download/v0.2.1/minisign-darwin-amd64.tar.gz) |
 | Windows   | amd64   | [minisign-windows-amd64.zip](https://github.com/aead/minisign/releases/download/v0.2.1/minisign-windows-amd64.zip)     |
 
-If your system has [Go1.16+](https://golang.org/dl/), you can build from source:
-```
-git clone https://aead.dev/minisign && cd minisign && make build
-```
+From source:
+1. Clone the repository
+   ```
+   git clone https://aead.dev/minisign && cd minisign
+   ```
+2. Build the binary
+   ```
+   make build
+   ```
 
 ## Library
 
@@ -99,14 +113,14 @@ import (
 func main() {
 	var message = []byte("Hello World!")
 
-	public, private, err := minisign.GenerateKey(rand.Reader)
+	publicKey, privateKey, err := minisign.GenerateKey(rand.Reader)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	signature := minisign.Sign(private, message)
+	signature := minisign.Sign(privateKey, message)
 	
-	if !minisign.Verify(public, message, signature) {
+	if !minisign.Verify(publicKey, message, signature) {
 		log.Fatalln("signature verification failed")
 	}
 	log.Println(string(message))
