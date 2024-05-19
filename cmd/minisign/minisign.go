@@ -21,7 +21,7 @@ import (
 	"golang.org/x/term"
 )
 
-const version = "v0.2.1"
+const version = "v0.3.0"
 
 const usage = `Usage:
     minisign -G [-p <pubKey>] [-s <secKey>] [-W]
