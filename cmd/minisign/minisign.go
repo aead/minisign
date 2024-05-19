@@ -552,7 +552,6 @@ func isTerm(fd *os.File) bool { return term.IsTerminal(int(fd.Fd())) }
 // exit formats and prints its args to stderr before exiting
 // the program.
 func exit(args ...any) {
-	fmt.Println()
 	fmt.Fprintln(os.Stderr, args...)
 	os.Exit(1)
 }
