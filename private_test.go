@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"os"
-	"strconv"
 	"testing"
 )
 
@@ -18,13 +17,13 @@ var marshalPrivateKeyTests = []struct {
 	Bytes []byte
 }{
 	{
-		File:  "./internal/testdata/unencrypted-0.key",
-		ID:    htoi("3728470A8118E56E"),
+		File:  "./internal/testdata/minisign-nopassword-0.key",
+		ID:    0x3728470A8118E56E,
 		Bytes: b64("JpjEI/XIKqIVl99tT611AxXwlVjlw2afJC8Nv6o7uuipyNvC3DmgO2csDT+bw1bZR3ss4rd5cXqoq0uftlCJqw=="),
 	},
 	{
-		File:  "./internal/testdata/unencrypted-1.key",
-		ID:    htoi("D7E531EE76B2FC6F"),
+		File:  "./internal/testdata/minisign-nopassword-1.key",
+		ID:    0xD7E531EE76B2FC6F,
 		Bytes: b64("L24Gi2UbWOb/MBb4MzJLysgC1F1FnE/m72qhb7r5FMlHzHe6M6mCLPMzmj6ln+hI51kqpDqTkIg9VCaToAhZtA=="),
 	},
 }
@@ -53,14 +52,26 @@ func TestPrivateKey_Marshal(t *testing.T) {
 	}
 }
 
-var unmarshalPrivateKeyTests = []string{
-	"./internal/testdata/unencrypted-0.key",
-	"./internal/testdata/unencrypted-1.key",
+var unmarshalPrivateKeyTests = []struct {
+	File  string
+	ID    uint64
+	Bytes []byte
+}{
+	{
+		File:  "./internal/testdata/minisign-nopassword-0.key",
+		ID:    0x3728470A8118E56E,
+		Bytes: b64("JpjEI/XIKqIVl99tT611AxXwlVjlw2afJC8Nv6o7uuipyNvC3DmgO2csDT+bw1bZR3ss4rd5cXqoq0uftlCJqw=="),
+	},
+	{
+		File:  "./internal/testdata/minisign-nopassword-1.key",
+		ID:    0xD7E531EE76B2FC6F,
+		Bytes: b64("L24Gi2UbWOb/MBb4MzJLysgC1F1FnE/m72qhb7r5FMlHzHe6M6mCLPMzmj6ln+hI51kqpDqTkIg9VCaToAhZtA=="),
+	},
 }
 
 func TestPrivateKey_Unmarshal(t *testing.T) {
-	for i, file := range unmarshalPrivateKeyTests {
-		raw, err := os.ReadFile(file)
+	for i, test := range unmarshalPrivateKeyTests {
+		raw, err := os.ReadFile(test.File)
 		if err != nil {
 			t.Fatalf("Test %d: failed to read private key: %v", i, err)
 		}
@@ -72,15 +83,14 @@ func TestPrivateKey_Unmarshal(t *testing.T) {
 
 		// Print test vector for marshaling:
 		// t.Logf("\n{\n\tID: htoi(\"%X\"),\n\tBytes: b64(\"%s\"),\n}", key.id, base64.StdEncoding.EncodeToString(key.bytes[:]))
-	}
-}
 
-func htoi(s string) uint64 {
-	i, err := strconv.ParseUint(s, 16, 64)
-	if err != nil {
-		panic(err)
+		if key.ID() != test.ID {
+			t.Fatalf("Test %d: ID mismatch: got '%x' - want '%x'", i, key.ID(), test.ID)
+		}
+		if !bytes.Equal(key.bytes[:], test.Bytes) {
+			t.Fatalf("Test %d: private key mismatch: got '%x' - want '%x'", i, key.bytes, test.Bytes)
+		}
 	}
-	return i
 }
 
 func b64(s string) []byte {
